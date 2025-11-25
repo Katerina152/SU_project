@@ -1,0 +1,58 @@
+2025-11-25 12:53:11,747 | INFO | Logging to ISIC2019/isic_vit_binary_224/seed_42/train.log
+2025-11-25 12:53:11,748 | INFO | Experiment root = ISIC2019/isic_vit_binary_224
+2025-11-25 12:53:11,748 | INFO | Seed directory  = ISIC2019/isic_vit_binary_224/seed_42
+2025-11-25 12:53:12,392 | INFO | Dataloaders created with keys: ['train', 'val', 'test']
+2025-11-25 12:53:12,392 | INFO | #train batches per epoch: 1
+2025-11-25 12:53:12,392 | INFO | #val batches per epoch:   1
+2025-11-25 12:53:12,392 | INFO | #test batches per epoch:  1
+2025-11-25 12:53:26,673 | INFO | First train batch pixel_values.shape = torch.Size([18, 3, 224, 224])
+2025-11-25 12:53:26,674 | INFO | First train batch labels.shape       = torch.Size([18])
+2025-11-25 12:53:26,674 | INFO | pixel_values dtype = torch.float32, device = cpu
+2025-11-25 12:53:26,674 | INFO | labels dtype       = torch.int64, device = cpu
+2025-11-25 12:53:26,674 | INFO | num_classes (data) = 9
+2025-11-25 12:53:26,674 | INFO | num_classes (cfg)  = 9
+2025-11-25 12:53:27,261 | INFO | Model built from config:
+2025-11-25 12:53:27,261 | INFO | VisionTransformerWithHead
+2025-11-25 12:53:27,261 | INFO | Lightning task         = single_label_classification
+2025-11-25 12:53:27,261 | INFO | Lightning output_dir   = ISIC2019/isic_vit_binary_224/seed_42
+2025-11-25 12:53:27,261 | INFO | Lightning experiment_name set to empty string for flat structure.
+2025-11-25 13:00:08,296 | INFO | Logging to ISIC2019/isic_vit_binary_224/seed_42/train.log
+2025-11-25 13:00:08,297 | INFO | Experiment root = ISIC2019/isic_vit_binary_224
+2025-11-25 13:00:08,297 | INFO | Seed directory  = ISIC2019/isic_vit_binary_224/seed_42
+2025-11-25 13:00:09,587 | INFO | Dataloaders created with keys: ['train', 'val', 'test']
+2025-11-25 13:00:09,588 | INFO | #train batches per epoch: 1
+2025-11-25 13:00:09,588 | INFO | #val batches per epoch:   1
+2025-11-25 13:00:09,588 | INFO | #test batches per epoch:  1
+2025-11-25 13:00:24,203 | INFO | First train batch pixel_values.shape = torch.Size([18, 3, 224, 224])
+2025-11-25 13:00:24,204 | INFO | First train batch labels.shape       = torch.Size([18])
+2025-11-25 13:00:24,205 | INFO | pixel_values dtype = torch.float32, device = cpu
+2025-11-25 13:00:24,205 | INFO | labels dtype       = torch.int64, device = cpu
+2025-11-25 13:00:24,205 | INFO | num_classes (data) = 9
+2025-11-25 13:00:24,205 | INFO | num_classes (cfg)  = 9
+2025-11-25 13:00:24,750 | INFO | Model built from config:
+2025-11-25 13:00:24,750 | INFO | VisionTransformerWithHead
+2025-11-25 13:00:24,750 | INFO | Lightning task         = single_label_classification
+2025-11-25 13:00:24,750 | INFO | Lightning output_dir   = ISIC2019/isic_vit_binary_224/seed_42
+2025-11-25 13:00:24,750 | INFO | Lightning experiment_name set to empty string for flat structure.
+2025-11-25 13:08:14,230 | INFO | Logging to ISIC2019/isic_vit_binary_224/seed_42/train.log
+2025-11-25 13:08:14,230 | INFO | Experiment root = ISIC2019/isic_vit_binary_224
+2025-11-25 13:08:14,230 | INFO | Seed directory  = ISIC2019/isic_vit_binary_224/seed_42
+2025-11-25 13:08:14,825 | INFO | Dataloaders created with keys: ['train', 'val', 'test']
+2025-11-25 13:08:14,825 | INFO | #train batches per epoch: 1
+2025-11-25 13:08:14,826 | INFO | #val batches per epoch:   1
+2025-11-25 13:08:14,826 | INFO | #test batches per epoch:  1
+2025-11-25 13:08:29,003 | INFO | First train batch pixel_values.shape = torch.Size([18, 3, 224, 224])
+2025-11-25 13:08:29,004 | INFO | First train batch labels.shape       = torch.Size([18])
+2025-11-25 13:08:29,004 | INFO | pixel_values dtype = torch.float32, device = cpu
+2025-11-25 13:08:29,005 | INFO | labels dtype       = torch.int64, device = cpu
+2025-11-25 13:08:29,005 | INFO | num_classes (data) = 9
+2025-11-25 13:08:29,005 | INFO | num_classes (cfg)  = 9
+2025-11-25 13:08:29,589 | INFO | Model built from config:
+2025-11-25 13:08:29,590 | INFO | VisionTransformerWithHead
+2025-11-25 13:08:29,590 | INFO | Lightning task         = single_label_classification
+2025-11-25 13:08:29,590 | INFO | Lightning output_dir   = ISIC2019/isic_vit_binary_224/seed_42
+2025-11-25 13:08:29,590 | INFO | Lightning experiment_name set to empty string for flat structure.
+2025-11-25 13:08:29,610 | INFO | TensorBoard / CSV logs will be in: ISIC2019/isic_vit_binary_224/seed_42
+2025-11-25 13:08:29,612 | INFO | Checkpoints will be saved under: ISIC2019/isic_vit_binary_224/seed_42/checkpoints
+2025-11-25 13:08:29,612 | INFO | use_gpu = False
+2025-11-25 13:08:29,898 | INFO | Starting training...

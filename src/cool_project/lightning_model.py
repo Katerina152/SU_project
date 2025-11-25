@@ -2,17 +2,30 @@ import lightning as L
 import time 
 import torch
 import os 
-from torchmetrics.classification import BinaryAccuracy
-from torchmetrics.regression import MeanSquaredError
 from lightning.pytorch.callbacks import BasePredictionWriter
 from cool_project.backbones_heads import custom_loss # is this okk or but specific functions?
 import numpy as np 
+import random
 import torch.nn.functional as F 
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from typing import Dict
 from pathlib import Path
-from torchmetrics.classification import MulticlassAccuracy
 from .metrics import build_metrics_for_task
+#from deepspeed.profiling.flops_profiler.profiler import FlopsProfiler
+#from lightning.pytorch.strategies import DeepSpeedStrategy
+
+try:
+    from deepspeed.ops.adam import DeepSpeedCPUAdam
+    from lightning.pytorch.strategies import DeepSpeedStrategy
+    from deepspeed.profiling.flops_profiler.profiler import FlopsProfiler
+    HAVE_DEEPSPEED = True
+except ImportError:
+    DeepSpeedCPUAdam = None
+    DeepSpeedStrategy = None
+    FlopsProfiler = None
+    HAVE_DEEPSPEED = False
+
+
 
 
 class LightningModel(L.LightningModule):
@@ -32,15 +45,26 @@ class LightningModel(L.LightningModule):
         super().__init__()
         self.model = model
         self.cfg = cfg
+        
+        self.save_hyperparameters(cfg)
+
+        # FLOPs profiling config
+        self.profile_flops = bool(cfg.get("profile_flops", False))
+        # Which batch to profile (e.g. 10th batch)
+        self.flops_batch = int(cfg.get("flops_batch", 10))
+        self.profiler = None
+        self._flops_profiled = False  
 
         
         # Let the model be the source of truth for task
         self.task = getattr(self.model, "task", cfg.get("task", "single_label_classification"))
         self.top_k = int(cfg.get("top_k", 5))
 
+
         # Optimizer hyperparameters
         self.lr = cfg.get("lr", 1e-4)
         self.weight_decay = cfg.get("weight_decay", 0.0)
+        
 
         # Where to save outputs
         self.exp_name = cfg.get("experiment_name", "default_exp")
@@ -125,7 +149,7 @@ class LightningModel(L.LightningModule):
 
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
-        # --- NEW: update torchmetrics ---
+        # --- update torchmetrics ---
         if self.task == "single_label_classification":
             for name, metric in self.val_metrics.items():
                 # For MulticlassAccuracy / top-k, passing logits is fine
@@ -143,10 +167,11 @@ class LightningModel(L.LightningModule):
         return loss
     
     def on_val_epoch_end(self):
-        for name, metric in self.train_metrics.items():
+        for name, metric in self.val_metrics.items():
             value = metric.compute()
-            self.log(f"train_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
+            self.log(f"eval_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
             metric.reset()
+
 
 
 
@@ -164,7 +189,7 @@ class LightningModel(L.LightningModule):
 
         self.log("test_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
-        # --- NEW: update torchmetrics ---
+        # --- update torchmetrics ---
         if self.task == "single_label_classification":
             for name, metric in self.test_metrics.items():
                 # For MulticlassAccuracy / top-k, passing logits is fine
@@ -184,7 +209,7 @@ class LightningModel(L.LightningModule):
     def on_test_epoch_end(self):
         for name, metric in self.test_metrics.items():
             value = metric.compute()
-            self.log(f"train_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
+            self.log(f"test_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
             metric.reset()
 
     # ----------------------
@@ -217,3 +242,46 @@ class LightningModel(L.LightningModule):
             weight_decay=self.weight_decay,
         )
         return optimizer
+
+    def on_fit_start(self):
+        if not self.profile_flops:
+            return
+
+        if not HAVE_DEEPSPEED or FlopsProfiler is None:
+            print("[LightningModel] profile_flops=True but DeepSpeed/FlopsProfiler not available. Skipping FLOPs profiling.")
+            return
+
+        # If using DeepSpeedStrategy, pass its engine, else just pass the model
+        strategy = getattr(self.trainer, "strategy", None)
+        if isinstance(strategy, DeepSpeedStrategy):
+            self.profiler = FlopsProfiler(self, ds_engine=strategy.model)
+        else:
+            self.profiler = FlopsProfiler(self.model)
+
+    def on_train_batch_start(self, batch, batch_idx):
+        if not self.profile_flops or self.profiler is None or self._flops_profiled:
+            return
+
+        if batch_idx == self.flops_batch:
+            self.profiler.start_profile()
+            self._batch_profile_start_time = time.time()
+
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        if not self.profile_flops or self.profiler is None or self._flops_profiled:
+            return
+
+        if batch_idx == self.flops_batch:
+            self.profiler.end_profile()
+
+            flops_path = self.output_dir / "flops.log"
+            self.profiler.print_model_profile(
+                profile_step=batch_idx,
+                module_depth=2,
+                top_modules=3,
+                detailed=True,
+                output_file=str(flops_path),
+            )
+
+            self.profiler.reset()
+            self._flops_profiled = True

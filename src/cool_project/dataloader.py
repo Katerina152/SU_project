@@ -12,8 +12,6 @@ from typing import List
 from torch.utils.data import random_split
 import torch.nn as nn  
 
-
-
 # Load Dataset for raw images, self-supervised learning/image ..... 
 class Image_Dataset(Dataset):
     def __init__(self, image_folder: str, transform=None):

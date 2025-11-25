@@ -107,8 +107,8 @@ def build_metrics_for_task(
             )
 
             metrics["auroc"] = MulticlassAUROC(num_classes=num_classes)
-            # Cross-entropy (log loss) for multiclass
-            metrics["log_loss"] = nn.CrossEntropyLoss()
+           
+            
 
         return metrics
 
@@ -139,8 +139,7 @@ def build_metrics_for_task(
 
         metrics["auroc"] = MultilabelAUROC(num_labels=num_classes)
 
-        # BCE with logits is standard for multilabel
-        metrics["log_loss"] = nn.BCEWithLogitsLoss()
+       
 
         return metrics
 

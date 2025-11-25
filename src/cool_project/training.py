@@ -88,18 +88,27 @@ def main(config_path: str):
     logger.info(f"experiment_name = {exp_name}")
 
     # Seed (top-level, or default 0)
-    seed = cfg.get("seed", 0)
+    seed = cfg["train"].get("seed", 42)
     L.seed_everything(seed)
     logger.info(f"Seed = {seed}")
+
+    # Optional but explicit
+    #torch.manual_seed(seed)
+    #np.random.seed(seed)
+    #random.seed(seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
     # ----------------------------------------------------
     # 1. DATA
     # ----------------------------------------------------
     data_cfg = cfg["data"]
-    domain = data_cfg["domain"]         # e.g. "dermatology"
+    domain = data_cfg["domain"]         
     logger.info(f"Domain = {domain}")
 
-    # Map domain -> dataset folder name (e.g. dermatology -> ISIC2019)
+    # Map domain 
     dataset_name = DOMAIN_DATASET_MAP.get(domain)
     if dataset_name is None:
         raise ValueError(
@@ -110,7 +119,6 @@ def main(config_path: str):
 
     # Final directory for this run:
     #   <DATASET_NAME>/<experiment_name>/seed_<seed>/
-    # e.g. ISIC2019/isic_vit_binary_224/seed_0/
     dataset_root = Path(dataset_name)
     exp_root = dataset_root / exp_name
     seed_dir = exp_root / f"seed_{seed}"
@@ -194,6 +202,8 @@ def main(config_path: str):
 
     task = exp_cfg.get("task", "single_label_classification").lower()
     exp_cfg["task"] = task
+    exp_cfg["num_classes"] = num_classes_cfg
+
 
     # IMPORTANT:
     # We want LightningModel outputs to go inside seed_dir.
