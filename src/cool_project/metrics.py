@@ -1,60 +1,123 @@
-from typing import Dict, Optional
-import torch.nn as nn
+from torchmetrics import (
+    Accuracy,
+    Precision,
+    Recall,
+    F1Score,
+    AUROC
+)
 from torchmetrics.classification import (
     BinaryAccuracy,
+    BinaryPrecision,
+    BinaryRecall,
+    BinaryF1Score,
     BinaryAUROC,
     MulticlassAccuracy,
+    MulticlassPrecision,
+    MulticlassRecall,
+    MulticlassF1Score,
+    MulticlassAUROC
+)
+from typing import Optional, Dict
+import torch.nn as nn
+
+from torchmetrics.classification import (
+    BinaryAccuracy,
+    BinaryPrecision,
+    BinaryRecall,
+    BinaryF1Score,
+    BinaryAUROC,
+    MulticlassAccuracy,
+    MulticlassPrecision,
+    MulticlassRecall,
+    MulticlassF1Score,
     MulticlassAUROC,
     MultilabelAccuracy,
-    MultilabelAUROC,
     MultilabelF1Score,
+    MultilabelAUROC,
 )
+
 from torchmetrics.regression import (
     MeanSquaredError,
     MeanAbsoluteError,
     R2Score,
+    ExplainedVariance,
 )
 
 
 def build_metrics_for_task(
     task: str,
     num_classes: Optional[int] = None,
-    top_k: int = 5,   # ✅ NEW
+    top_k: int = 5,
 ) -> Dict[str, nn.Module]:
 
     task = task.lower()
     metrics: Dict[str, nn.Module] = {}
 
     # ------------------------------------------------------
-    # 1) Single-label classification
+    # 1) Single-label classification (binary & multiclass)
     # ------------------------------------------------------
     if task == "single_label_classification":
         if num_classes is None:
-            raise ValueError("num_classes must be provided for classification tasks.")
+            raise ValueError("num_classes is required for single_label_classification")
 
+        # -------- Binary classification --------
         if num_classes == 2:
             metrics["accuracy"] = BinaryAccuracy()
+            metrics["precision"] = BinaryPrecision()
+            metrics["recall"] = BinaryRecall()
+            metrics["f1"] = BinaryF1Score()
             metrics["auroc"] = BinaryAUROC()
+            
+
+        # -------- Multiclass classification --------
         else:
-            # Top-1 accuracy
             metrics["accuracy"] = MulticlassAccuracy(num_classes=num_classes)
 
-            # ✅ Top-K Accuracy
+            # Top-K accuracy (only meaningful for multiclass)
             metrics[f"top{top_k}_accuracy"] = MulticlassAccuracy(
                 num_classes=num_classes,
-                top_k=top_k
+                top_k=top_k,
+            )
+
+            metrics["precision_macro"] = MulticlassPrecision(
+                num_classes=num_classes,
+                average="macro",
+            )
+            metrics["precision_weighted"] = MulticlassPrecision(
+                num_classes=num_classes,
+                average="weighted",
+            )
+
+            metrics["recall_macro"] = MulticlassRecall(
+                num_classes=num_classes,
+                average="macro",
+            )
+            metrics["recall_weighted"] = MulticlassRecall(
+                num_classes=num_classes,
+                average="weighted",
+            )
+
+            metrics["f1_macro"] = MulticlassF1Score(
+                num_classes=num_classes,
+                average="macro",
+            )
+            metrics["f1_weighted"] = MulticlassF1Score(
+                num_classes=num_classes,
+                average="weighted",
             )
 
             metrics["auroc"] = MulticlassAUROC(num_classes=num_classes)
+            # Cross-entropy (log loss) for multiclass
+            metrics["log_loss"] = nn.CrossEntropyLoss()
 
         return metrics
 
     # ------------------------------------------------------
     # 2) Multi-label classification
     # ------------------------------------------------------
-    if task in ["multi_label", "multi_label_classification", "multilabel"]:
+    if task in ["multi_label", "multilabel", "multi_label_classification"]:
         if num_classes is None:
-            raise ValueError("num_classes must be provided for multi-label tasks.")
+            raise ValueError("num_classes is required for multi-label tasks")
 
         metrics["macro_accuracy"] = MultilabelAccuracy(
             num_labels=num_classes,
@@ -76,6 +139,9 @@ def build_metrics_for_task(
 
         metrics["auroc"] = MultilabelAUROC(num_labels=num_classes)
 
+        # BCE with logits is standard for multilabel
+        metrics["log_loss"] = nn.BCEWithLogitsLoss()
+
         return metrics
 
     # ------------------------------------------------------
@@ -86,6 +152,10 @@ def build_metrics_for_task(
         metrics["rmse"] = MeanSquaredError(squared=False)
         metrics["mae"] = MeanAbsoluteError()
         metrics["r2"] = R2Score()
+        metrics["explained_variance"] = ExplainedVariance()
         return metrics
 
-    raise ValueError(f"Unknown task for metrics: {task}")
+    # ------------------------------------------------------
+    # Unknown task
+    # ------------------------------------------------------
+    raise ValueError(f"Unknown task: {task}")

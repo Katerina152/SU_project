@@ -142,9 +142,6 @@ class DinoWithHead(nn.Module):
         super().__init__()
 
         
-
-
-
 def build_model_from_config(cfg):
     model_cfg = cfg["model"]
     model_type = model_cfg.get("type", "vit").lower()

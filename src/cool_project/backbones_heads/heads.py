@@ -3,8 +3,6 @@ import torch.nn as nn
 from typing import Optional, Dict, Any
 from .custom_loss import CustomActivation
 
-
-
 # -------------------
 # Activation function
 # -------------------

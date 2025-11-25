@@ -47,15 +47,18 @@ class LightningModel(L.LightningModule):
         self.output_dir = Path(cfg.get("output_dir", "runs")) / self.exp_name
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Metric name for logging
-        if self.task == "single_label_classification":
-            self.metric_name = "accuracy"
-        elif self.task == "multi_label_classification":
-            self.metric_name = "accuracy"
-        elif self.task == "regression":
-            self.metric_name = "rmse"
-        else:
-            raise ValueError(f"Unsupported task: {self.task}")
+        # --- NEW: metrics from your helper ---
+        num_classes = getattr(self.model, "num_classes", cfg.get("num_classes", None))
+        self.num_classes = num_classes
+
+        self.train_metrics = build_metrics_for_task(
+            task=self.task,
+            num_classes=num_classes,
+            top_k=self.top_k,
+        )
+        # clone for val / test so they have independent states
+        self.val_metrics = {k: m.clone() for k, m in self.train_metrics.items()}
+        self.test_metrics = {k: m.clone() for k, m in self.train_metrics.items()}
 
     # ----------------------
     # Forward
@@ -84,48 +87,29 @@ class LightningModel(L.LightningModule):
 
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
+        # --- NEW: update torchmetrics ---
         if self.task == "single_label_classification":
-            preds = torch.argmax(logits, dim=1)
-            batch_acc = (preds == labels).float().mean()
-            self.log(
-                f"train_{self.metric_name}",
-                batch_acc,
-                prog_bar=True,
-                on_step=False,
-                on_epoch=True,
-            )
+            for name, metric in self.train_metrics.items():
+                # For MulticlassAccuracy / top-k, passing logits is fine
+                metric.update(logits, labels)
 
-            # Top-k accuracy
-            num_classes = logits.size(1)
-            if num_classes > 2 and self.top_k > 1:
-                k = min(self.top_k, num_classes)
-                topk = torch.topk(logits, k=k, dim=1).indices  # [B, k]
-                correct_topk = (topk == labels.unsqueeze(1)).any(dim=1).float().mean()
-                self.log(
-                    f"train_top{k}_accuracy",
-                    correct_topk,
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                )
-
-        elif self.task == "multi_label_classification":
+        elif self.task in ["multi_label_classification", "multi_label", "multilabel"]:
             probs = torch.sigmoid(logits)
-            preds = (probs > 0.5).float()
-            batch_acc = (preds == labels).float().mean()
-            self.log("train_accuracy", batch_acc, prog_bar=True, on_epoch=True)
+            for name, metric in self.train_metrics.items():
+                metric.update(probs, labels)
 
         elif self.task == "regression":
-            batch_rmse = torch.sqrt(F.mse_loss(logits.squeeze(), labels.squeeze()))
-            self.log(
-                f"train_{self.metric_name}",
-                batch_rmse,
-                prog_bar=True,
-                on_step=False,
-                on_epoch=True,
-            )
+            for name, metric in self.train_metrics.items():
+                metric.update(logits.squeeze(), labels.squeeze())
 
         return loss
+
+    def on_train_epoch_end(self):
+        for name, metric in self.train_metrics.items():
+            value = metric.compute()
+            self.log(f"train_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
+            metric.reset()
+
 
     # ----------------------
     # Validation Step
@@ -141,45 +125,30 @@ class LightningModel(L.LightningModule):
 
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
+        # --- NEW: update torchmetrics ---
         if self.task == "single_label_classification":
-            preds = torch.argmax(logits, dim=1)
-            batch_acc = (preds == labels).float().mean()
-            self.log(
-                f"val_{self.metric_name}",
-                batch_acc,
-                prog_bar=True,
-                on_step=False,
-                on_epoch=True,
-            )
+            for name, metric in self.val_metrics.items():
+                # For MulticlassAccuracy / top-k, passing logits is fine
+                metric.update(logits, labels)
 
-            num_classes = logits.size(1)
-            if num_classes > 2 and self.top_k > 1:
-                k = min(self.top_k, num_classes)
-                topk = torch.topk(logits, k=k, dim=1).indices
-                correct_topk = (topk == labels.unsqueeze(1)).any(dim=1).float().mean()
-                self.log(
-                    f"val_top{k}_accuracy",
-                    correct_topk,
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                )
-
-        elif self.task == "multi_label_classification":
+        elif self.task in ["multi_label_classification", "multi_label", "multilabel"]:
             probs = torch.sigmoid(logits)
-            preds = (probs > 0.5).float()
-            batch_acc = (preds == labels).float().mean()
-            self.log("val_accuracy", batch_acc, prog_bar=True, on_epoch=True)
+            for name, metric in self.val_metrics.items():
+                metric.update(probs, labels)
 
         elif self.task == "regression":
-            batch_rmse = torch.sqrt(F.mse_loss(logits.squeeze(), labels.squeeze()))
-            self.log(
-                f"val_{self.metric_name}",
-                batch_rmse,
-                prog_bar=True,
-                on_step=False,
-                on_epoch=True,
-            )
+            for name, metric in self.val_metrics.items():
+                metric.update(logits.squeeze(), labels.squeeze())
+
+        return loss
+    
+    def on_val_epoch_end(self):
+        for name, metric in self.train_metrics.items():
+            value = metric.compute()
+            self.log(f"train_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
+            metric.reset()
+
+
 
     # ----------------------
     # Test Step
@@ -195,45 +164,28 @@ class LightningModel(L.LightningModule):
 
         self.log("test_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
+        # --- NEW: update torchmetrics ---
         if self.task == "single_label_classification":
-            preds = torch.argmax(logits, dim=1)
-            batch_acc = (preds == labels).float().mean()
-            self.log(
-                f"test_{self.metric_name}",
-                batch_acc,
-                prog_bar=True,
-                on_step=False,
-                on_epoch=True,
-            )
+            for name, metric in self.test_metrics.items():
+                # For MulticlassAccuracy / top-k, passing logits is fine
+                metric.update(logits, labels)
 
-            num_classes = logits.size(1)
-            if num_classes > 2 and self.top_k > 1:
-                k = min(self.top_k, num_classes)
-                topk = torch.topk(logits, k=k, dim=1).indices
-                correct_topk = (topk == labels.unsqueeze(1)).any(dim=1).float().mean()
-                self.log(
-                    f"test_top{k}_accuracy",
-                    correct_topk,
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                )
-
-        elif self.task == "multi_label_classification":
+        elif self.task in ["multi_label_classification", "multi_label", "multilabel"]:
             probs = torch.sigmoid(logits)
-            preds = (probs > 0.5).float()
-            batch_acc = (preds == labels).float().mean()
-            self.log("test_accuracy", batch_acc, prog_bar=True, on_epoch=True)
+            for name, metric in self.test_metrics.items():
+                metric.update(probs, labels)
 
         elif self.task == "regression":
-            batch_rmse = torch.sqrt(F.mse_loss(logits.squeeze(), labels.squeeze()))
-            self.log(
-                f"test_{self.metric_name}",
-                batch_rmse,
-                prog_bar=True,
-                on_step=False,
-                on_epoch=True,
-            )
+            for name, metric in self.test_metrics.items():
+                metric.update(logits.squeeze(), labels.squeeze())
+
+        return loss
+    
+    def on_test_epoch_end(self):
+        for name, metric in self.test_metrics.items():
+            value = metric.compute()
+            self.log(f"train_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
+            metric.reset()
 
     # ----------------------
     # Save embeddings

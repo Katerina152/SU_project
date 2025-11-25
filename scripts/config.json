@@ -35,6 +35,7 @@
     "gpus": 1,
     "early_stopping_patience": 5,
     "top_k": 5,
+    "seed": 42, 
     "profile_flops": false
   }
 }
