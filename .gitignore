@@ -1,6 +1,16 @@
+# Virtual environments
 venv/
+.venv/
+
+# Images / datasets
+*.jpg
+*.jpeg
+*.png
+
+# Model checkpoints
 *.ckpt
 *.pt
 *.pth
-src/ISIC2019/isic_vit_binary_224/seed_0/checkpoints/
 
+# macOS
+.DS_Store
