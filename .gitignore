@@ -1,0 +1,6 @@
+venv/
+*.ckpt
+*.pt
+*.pth
+src/ISIC2019/isic_vit_binary_224/seed_0/checkpoints/
+

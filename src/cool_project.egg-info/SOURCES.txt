@@ -1,0 +1,7 @@
+setup.py
+src/cool_project/__init__.py
+src/cool_project/dataloader.py
+src/cool_project.egg-info/PKG-INFO
+src/cool_project.egg-info/SOURCES.txt
+src/cool_project.egg-info/dependency_links.txt
+src/cool_project.egg-info/top_level.txt

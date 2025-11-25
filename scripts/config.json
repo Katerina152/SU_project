@@ -1,0 +1,40 @@
+{
+  "experiment_name": "isic_vit_binary_224",
+  "output_dir": "runs",
+
+  "task": "single_label_classification",
+
+  "data": {
+    "domain": "dermatology",
+    "resolution": 224,
+    "batch_size": 32,
+    "num_workers": 4,
+    "balanced_train": true,
+    "val_split": 0.1
+  },
+
+  "model": {
+    "backbone": {
+      "hf_model_name": "google/vit-base-patch16-224",
+      "pooling": "cls",
+      "num_layers_to_use": null,
+      "freeze_backbone": true
+    },
+    "head": {
+      "type": "linear",
+      "output_dim": 9,
+      "output_activation": null
+    },
+    "loss_type": "ce"
+  },
+
+  "train": {
+    "lr": 1e-4,
+    "weight_decay": 0.0,
+    "max_epochs": 2,
+    "gpus": 1,
+    "early_stopping_patience": 5,
+    "top_k": 5,
+    "profile_flops": false
+  }
+}

@@ -1,0 +1,106 @@
+from torch.utils.data import Dataset, DataLoader
+from PIL import Image
+import numpy as np
+import glob
+import os
+import torch
+
+# Load Dataset for raw images no labels needed  (self-supervised learning/image process...)
+class Image_Dataset(Dataset):
+    def __init__(self, image_folder, transform=None):
+	self.paths = sorted(glob.glob(os.path.join(image_folder, "*.jpg")))
+	self.transform = transform
+    def __len__(self):
+	return len(self.paths)
+    def __getitem__(self,idx):
+	img_path = self.paths[idx]
+	img = Image.open(img_path).convert("RGB")
+        
+
+	if self.transform:
+            img = self.transform(img)
+ 		
+	 return img
+
+
+#  Load Dataset for raw images and supervided learning/classification  
+
+class ISICStyleDataset(Dataset):
+    def __init__(self, csv_path, image_folder,
+                 transform=None, return_one_hot = False, validate_columns = True):
+       
+
+        self.csv_path = pd.read_csv(csv_path)
+        self.image_folder = image_folder
+        self.transform = transform
+        self.return_one_hot = return_one_hot
+
+        
+        if label_cols is None:
+            non_label_cols = ["image"]
+            # all numeric columns except "image"
+            label_cols = [
+                c for c in self.df.columns
+                if c not in non_label_cols and pd.api.types.is_numeric_dtype(self.df[c])
+            ]
+
+        self.label_cols = label_cols
+        self.class_names = label_cols
+
+        self.df[self.label_cols] = self.df[self.label_cols].astype(float)
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+
+        # ---- image ----
+        image_id = row["image"]
+        image_path = os.path.join(self.image_folder, image_id + ".jpg")
+        img = Image.open(image_path).convert("RGB")
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        # ---- labels ----
+        label_vector = torch.tensor(
+            row[self.label_cols].values,
+            dtype=torch.float32
+        )
+
+        if self.return_one_hot:
+            # multi-label
+            label = label_vector
+        else:
+            # single-label
+            label = int(label_vector.argmax().item())
+
+        return img, label
+
+
+
+
+
+
+
+
+
+
+# Load Dataset for precomputed embeddings
+class Embedding_Dataset(Dataset):
+    def __init__(self, embedding_folder):
+        self.paths = sorted(glob.glob(os.path.join(embedding_folder, "*.pt")))
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, idx):
+        emb_path = self.paths[idx]
+        emb = torch.load(emb_path)           
+        emb = torch.tensor(emb, dtype=torch.float32)
+        return emb
+
+#DataLoaders
+
+
