@@ -14,3 +14,12 @@ venv/
 
 # macOS
 .DS_Store
+
+# TensorBoard & training outputs
+events.out.tfevents.*
+*.log
+metrics.csv
+
+# Python
+__pycache__/
+*.pyc
