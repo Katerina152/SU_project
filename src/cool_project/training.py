@@ -31,7 +31,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 # ----------------------------
 # Config loader
 # ----------------------------
@@ -203,16 +202,9 @@ def main(config_path: str):
     task = exp_cfg.get("task", "single_label_classification").lower()
     exp_cfg["task"] = task
     exp_cfg["num_classes"] = num_classes_cfg
-
-
-    # IMPORTANT:
-    # We want LightningModel outputs to go inside seed_dir.
-    # LightningModel does: output_dir / experiment_name.
-    # So we set:
-    #   output_dir = seed_dir
-    #   experiment_name = ""   (so it doesn't add another subfolder)
-    exp_cfg["experiment_name"] = ""
+    exp_cfg["experiment_name"] = exp_name
     exp_cfg["output_dir"] = str(seed_dir)
+   
 
     logger.info(f"Lightning task         = {task}")
     logger.info(f"Lightning output_dir   = {seed_dir}")

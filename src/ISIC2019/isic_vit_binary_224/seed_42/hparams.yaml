@@ -1,5 +1,5 @@
 early_stopping_patience: 5
-experiment_name: ''
+experiment_name: isic_vit_binary_224
 flops_batch: 10
 gpus: 1
 lr: 0.0001

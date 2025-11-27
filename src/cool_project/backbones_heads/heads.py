@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Optional, Dict, Any
-from .custom_loss import CustomActivation
+from .custom_loss import CustomLoss
 
 # -------------------
 # Activation function
@@ -21,7 +21,7 @@ def get_activation(name: Optional[str]) -> nn.Module:
     if name == "leaky_relu":
         return nn.LeakyReLU()
     if name == "custom":
-        return CustomActivation()  
+        return CustomLoss()  
     # default: identity if unknown
     return nn.Identity()
 

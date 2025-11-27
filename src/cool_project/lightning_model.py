@@ -11,6 +11,7 @@ from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from typing import Dict
 from pathlib import Path
 from .metrics import build_metrics_for_task
+import psutil
 #from deepspeed.profiling.flops_profiler.profiler import FlopsProfiler
 #from lightning.pytorch.strategies import DeepSpeedStrategy
 
@@ -24,9 +25,6 @@ except ImportError:
     DeepSpeedStrategy = None
     FlopsProfiler = None
     HAVE_DEEPSPEED = False
-
-
-
 
 class LightningModel(L.LightningModule):
     def __init__(self, model: torch.nn.Module, cfg: Dict):
@@ -48,6 +46,17 @@ class LightningModel(L.LightningModule):
         
         self.save_hyperparameters(cfg)
 
+        def _log_memory(self, tag: str):
+            process = psutil.Process(os.getpid())
+            mem_gb = process.memory_info().rss / 1024**3
+            self.log(f"{tag}_cpu_memory_gb", mem_gb, prog_bar=False, on_step=False, on_epoch=True)
+
+            if torch.cuda.is_available():
+                gpu_mem = torch.cuda.max_memory_allocated() / 1024**3
+                self.log(f"{tag}_gpu_memory_gb", gpu_mem, prog_bar=False, on_step=False, on_epoch=True)
+                # optional: reset peak stats so next epoch is fresh
+                torch.cuda.reset_peak_memory_stats()
+
         # FLOPs profiling config
         self.profile_flops = bool(cfg.get("profile_flops", False))
         # Which batch to profile (e.g. 10th batch)
@@ -68,7 +77,7 @@ class LightningModel(L.LightningModule):
 
         # Where to save outputs
         self.exp_name = cfg.get("experiment_name", "default_exp")
-        self.output_dir = Path(cfg.get("output_dir", "runs")) / self.exp_name
+        self.output_dir = Path(cfg.get("output_dir", "runs")) 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # --- NEW: metrics from your helper ---
@@ -110,6 +119,16 @@ class LightningModel(L.LightningModule):
         logits = out.logits
 
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        
+
+        #process = psutil.Process(os.getpid())
+        #mem_gb = process.memory_info().rss / 1024**3
+        #self.log("cpu_memory_gb", mem_gb, prog_bar=True)
+
+        #if torch.cuda.is_available():
+            #gpu_mem = torch.cuda.memory_allocated() / 1024**3
+            #self.log("gpu_memory_gb", gpu_mem)
+
 
         # --- NEW: update torchmetrics ---
         if self.task == "single_label_classification":
@@ -133,6 +152,9 @@ class LightningModel(L.LightningModule):
             value = metric.compute()
             self.log(f"train_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
             metric.reset()
+
+        #log memory at end of epoch
+        self._log_memory("train")
 
 
     # ----------------------
@@ -171,6 +193,9 @@ class LightningModel(L.LightningModule):
             value = metric.compute()
             self.log(f"eval_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
             metric.reset()
+        
+        # log memory at end of epoch
+        self._log_memory("eval")
 
 
 
@@ -211,6 +236,9 @@ class LightningModel(L.LightningModule):
             value = metric.compute()
             self.log(f"test_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
             metric.reset()
+        
+        # log memory at end of epoch
+        self._log_memory("test")
 
     # ----------------------
     # Save embeddings
