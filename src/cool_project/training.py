@@ -91,7 +91,7 @@ def main(config_path: str):
     L.seed_everything(seed)
     logger.info(f"Seed = {seed}")
 
-    # Optional but explicit
+    # Optional
     #torch.manual_seed(seed)
     #np.random.seed(seed)
     #random.seed(seed)
@@ -127,7 +127,7 @@ def main(config_path: str):
     logger.info(f"Experiment root = {exp_root}")
     logger.info(f"Seed directory  = {seed_dir}")
 
-    # Create domain loaders (your existing API)
+    # Create domain loaders
     loaders = create_domain_loaders(
         domain=domain,
         resolution=data_cfg["resolution"],
@@ -138,7 +138,7 @@ def main(config_path: str):
         return_one_hot=return_one_hot,
     )
 
-    # Your create_domain_loaders returns a dict
+    
     train_loader = loaders["train"]
     val_loader = loaders.get("val")
     test_loader = loaders["test"]
@@ -185,6 +185,25 @@ def main(config_path: str):
 
     logger.info(f"num_classes (data) = {num_classes_data}")
     logger.info(f"num_classes (cfg)  = {num_classes_cfg}")
+
+    # --- Inspect label distribution in the training CSV  ---
+    if hasattr(base_train_ds, "df"):
+        df = base_train_ds.df
+        label_cols = base_train_ds.label_cols
+
+        logger.info("First 5 rows of train CSV:")
+        logger.info("\n%s", df.head().to_string())
+
+        class_sums = df[label_cols].sum().to_dict()
+        logger.info(f"Label columns: {label_cols}")
+        logger.info(f"Class counts (sum over labels): {class_sums}")
+
+        # For single-label (one-hot) this should equal num_samples
+        logger.info(
+            f"Total label sum across all classes: {sum(class_sums.values())} "
+            f"(num_samples = {len(df)})"
+        )
+
 
     # ----------------------------------------------------
     # 2. MODEL
@@ -305,7 +324,7 @@ def main(config_path: str):
     )
 
     # ----------------------------------------------------
-    # 8. TEST (optional)
+    # 8. TEST 
     # ----------------------------------------------------
     if test_loader is not None:
         logger.info("Starting test...")

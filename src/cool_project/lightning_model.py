@@ -3,7 +3,7 @@ import time
 import torch
 import os 
 from lightning.pytorch.callbacks import BasePredictionWriter
-from cool_project.backbones_heads import custom_loss # is this okk or but specific functions?
+from cool_project.backbones_heads import custom_loss 
 import numpy as np 
 import random
 import torch.nn.functional as F 
@@ -46,17 +46,6 @@ class LightningModel(L.LightningModule):
         
         self.save_hyperparameters(cfg)
 
-        def _log_memory(self, tag: str):
-            process = psutil.Process(os.getpid())
-            mem_gb = process.memory_info().rss / 1024**3
-            self.log(f"{tag}_cpu_memory_gb", mem_gb, prog_bar=False, on_step=False, on_epoch=True)
-
-            if torch.cuda.is_available():
-                gpu_mem = torch.cuda.max_memory_allocated() / 1024**3
-                self.log(f"{tag}_gpu_memory_gb", gpu_mem, prog_bar=False, on_step=False, on_epoch=True)
-                # optional: reset peak stats so next epoch is fresh
-                torch.cuda.reset_peak_memory_stats()
-
         # FLOPs profiling config
         self.profile_flops = bool(cfg.get("profile_flops", False))
         # Which batch to profile (e.g. 10th batch)
@@ -80,7 +69,7 @@ class LightningModel(L.LightningModule):
         self.output_dir = Path(cfg.get("output_dir", "runs")) 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # --- NEW: metrics from your helper ---
+        # --- metrics from your helper ---
         num_classes = getattr(self.model, "num_classes", cfg.get("num_classes", None))
         self.num_classes = num_classes
 
@@ -92,6 +81,17 @@ class LightningModel(L.LightningModule):
         # clone for val / test so they have independent states
         self.val_metrics = {k: m.clone() for k, m in self.train_metrics.items()}
         self.test_metrics = {k: m.clone() for k, m in self.train_metrics.items()}
+    
+    def _log_memory(self, tag: str):
+        process = psutil.Process(os.getpid())
+        mem_gb = process.memory_info().rss / 1024**3
+        self.log(f"{tag}_cpu_memory_gb", mem_gb, prog_bar=False, on_step=False, on_epoch=True)
+
+        if torch.cuda.is_available():
+            gpu_mem = torch.cuda.max_memory_allocated() / 1024**3
+            self.log(f"{tag}_gpu_memory_gb", gpu_mem, prog_bar=False, on_step=False, on_epoch=True)
+            # optional: reset peak stats so next epoch is fresh
+            torch.cuda.reset_peak_memory_stats()
 
     # ----------------------
     # Forward
@@ -120,17 +120,7 @@ class LightningModel(L.LightningModule):
 
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
         
-
-        #process = psutil.Process(os.getpid())
-        #mem_gb = process.memory_info().rss / 1024**3
-        #self.log("cpu_memory_gb", mem_gb, prog_bar=True)
-
-        #if torch.cuda.is_available():
-            #gpu_mem = torch.cuda.memory_allocated() / 1024**3
-            #self.log("gpu_memory_gb", gpu_mem)
-
-
-        # --- NEW: update torchmetrics ---
+        # --- update torchmetrics ---
         if self.task == "single_label_classification":
             for name, metric in self.train_metrics.items():
                 # For MulticlassAccuracy / top-k, passing logits is fine
@@ -174,7 +164,7 @@ class LightningModel(L.LightningModule):
         # --- update torchmetrics ---
         if self.task == "single_label_classification":
             for name, metric in self.val_metrics.items():
-                # For MulticlassAccuracy / top-k, passing logits is fine
+                # For MulticlassAccuracy / top-k
                 metric.update(logits, labels)
 
         elif self.task in ["multi_label_classification", "multi_label", "multilabel"]:
@@ -217,7 +207,7 @@ class LightningModel(L.LightningModule):
         # --- update torchmetrics ---
         if self.task == "single_label_classification":
             for name, metric in self.test_metrics.items():
-                # For MulticlassAccuracy / top-k, passing logits is fine
+                # For MulticlassAccuracy / top-k
                 metric.update(logits, labels)
 
         elif self.task in ["multi_label_classification", "multi_label", "multilabel"]:

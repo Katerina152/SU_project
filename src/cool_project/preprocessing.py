@@ -113,7 +113,7 @@ def build_pipeline_for_model(
             ])
 
     else:
-        # Default "medical" pipeline (like we discussed before)
+        
         if mode == "train":
             return transforms.Compose([
                 resize,

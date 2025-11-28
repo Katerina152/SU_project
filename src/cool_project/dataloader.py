@@ -109,6 +109,8 @@ class GenericCSVDataset(Dataset):
 
         # -------- Load CSV --------
         df = pd.read_csv(csv_path)
+        print(f"Loaded {len(df)} entries from '{csv_path}'.")
+
 
         
         # -------- Basic sanity: must have an 'image' column --------
@@ -142,7 +144,8 @@ class GenericCSVDataset(Dataset):
         # -------- Save metadata on the dataset --------
         self.label_cols = label_cols            
         self.class_names = label_cols
-        self.num_classes = len(label_cols)        
+        self.num_classes = len(label_cols)   
+        print(f"Detected {self.num_classes} classes: {self.class_names}")     
 
         # -------- Map image_id -> full path, scanning all subfolders --------
         id_to_path = {}
@@ -152,6 +155,9 @@ class GenericCSVDataset(Dataset):
                     img_id = os.path.splitext(fname)[0]  # 'ISIC_0000000'
                     full_path = os.path.join(root, fname)
                     id_to_path[img_id] = full_path
+        
+        print(f"Found {len(id_to_path)} images under '{images_root}' with extension '{self.img_ext}'.")
+        
 
         if len(id_to_path) == 0:
             raise RuntimeError(
@@ -169,6 +175,8 @@ class GenericCSVDataset(Dataset):
             )
 
         df = df[mask].reset_index(drop=True)
+
+        print(f"final dataset size after filtering missing images: {len(df)}.")
 
         self.df = df
         self.id_to_path = id_to_path
@@ -322,12 +330,17 @@ def compute_class_weights(dataset):
 
     num_classes = int(labels_tensor.max().item() + 1)
     class_counts = torch.bincount(labels_tensor, minlength=num_classes)
+    print(f"Class counts: {class_counts.tolist()}")
 
     # Avoid division by zero (if some class exists in CSV but no images)
     class_counts[class_counts == 0] = 1
 
     class_weights = 1.0 / class_counts.float()
     sample_weights = class_weights[labels_tensor]
+
+    print(f"[compute_class_weights] class_weights={class_weights.tolist()}")
+    print(f"[compute_class_weights] sample_weights (first 10)={sample_weights[:10].tolist()}")
+
 
     return class_weights, sample_weights
 
@@ -431,7 +444,7 @@ def create_image_data_loaders(
         dict with keys: "train", optionally "val", and "test".
     """
     loaders = {}
-
+    
     # --------- Load train ---------
     train_ds = load_dataset(
         dataset_name=dataset_name,
@@ -440,6 +453,7 @@ def create_image_data_loaders(
         return_one_hot=return_one_hot,
         img_ext=img_ext,
     )
+    print(f"[create_image_data_loaders] Loaded train_ds with {len(train_ds)} samples.")
 
     # --------- Load optional val ---------
     try:
@@ -455,23 +469,21 @@ def create_image_data_loaders(
 
     # --------- If no val folder but val_split > 0, carve val from train ---------
     if val_ds is None and val_split > 0.0:
-        # use your helper here; we keep test_split=0.0 to NOT touch disk test
+        print(f"[create_image_data_loaders] No 'val' folder found; splitting {val_split*100:.1f}% from train as validation.")
         train_ds, val_ds, _ = _split_dataset_random(
             train_ds,
             val_split=val_split,
             test_split=0.0,
         )
-
+        print(f"[create_image_data_loaders] After split: train_ds={len(train_ds)} samples, val_ds={len(val_ds)} samples.")
+        
         # ensure validation uses eval_transform
         if eval_transform is not None:
-            # train_ds and val_ds share the same underlying dataset,
-            # so updating val_ds.dataset.transform is enough
             val_ds.dataset.transform = eval_transform
 
     # --------- Load test (assumed to exist) ---------
     if test_transform is None:
-        # often you want test to behave like val by default
-        test_transform = eval_transform
+        test_transform = test_transform
 
 
     # --------- Load test (assumed to exist) ---------
@@ -498,7 +510,7 @@ def create_image_data_loaders(
             val_ds,
             batch_size=batch_size,
             num_workers=num_workers,
-            balanced=False,  # usually no balancing for val
+            balanced=False, 
             shuffle=False, 
         )
 
@@ -519,11 +531,9 @@ def is_multilabel_from_config(cfg: dict) -> bool:
     task = cfg.get("task", "").lower()
     loss_type = cfg.get("model", {}).get("loss_type", "").lower()
 
-    # If the task explicitly says multi-label, trust it.
     if task in ["multi_label", "multi_label_classification", "multilabel"]:
         return True
 
-    # If the loss is a typical multi-label loss, also treat it as multi-label.
     if loss_type in ["bce", "bcewithlogits", "bce_logits", "bce_multilabel"]:
         return True
 

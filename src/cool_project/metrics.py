@@ -73,7 +73,7 @@ def build_metrics_for_task(
         else:
             metrics["accuracy"] = MulticlassAccuracy(num_classes=num_classes)
 
-            # Top-K accuracy (only meaningful for multiclass)
+            # Top-K accuracy 
             metrics[f"top{top_k}_accuracy"] = MulticlassAccuracy(
                 num_classes=num_classes,
                 top_k=top_k,
