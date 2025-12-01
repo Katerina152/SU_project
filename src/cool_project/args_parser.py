@@ -1,7 +1,7 @@
 import argparse 
 
 def parse_args():
-    parser = argparser.ArgumentParser(description="ViT training runner")
+    parser = argparse.ArgumentParser(description="ViT training runner")
 
     parser.add_argument(
         "--function",

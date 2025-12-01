@@ -29,7 +29,7 @@ from cool_project.dataloader import is_multilabel_from_config
 
 import logging
 
-
+logger = logging.getLogger(__name__)
 
 # ----------------------------
 # Config loader
@@ -39,7 +39,7 @@ def load_config(path: str):
         return json.load(f)
 
 '''
-logger = logging.getLogger(__name__)
+
 def setup_logging(seed_dir: Path):
     """
     Log to console + seed_dir/train.log

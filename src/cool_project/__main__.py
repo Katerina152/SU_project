@@ -1,5 +1,5 @@
 import traceback 
-from args_parser import parse_args 
+from cool_project.args_parser import parse_args        
 from cool_project.training import build_training_experiment
 # vale kai oti allo tha kanoume se experiment e.g. extract embeddings etc
 
