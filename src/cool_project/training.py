@@ -29,7 +29,7 @@ from cool_project.dataloader import is_multilabel_from_config
 
 import logging
 
-logger = logging.getLogger(__name__)
+
 
 # ----------------------------
 # Config loader
@@ -38,7 +38,8 @@ def load_config(path: str):
     with open(path, "r") as f:
         return json.load(f)
 
-
+'''
+logger = logging.getLogger(__name__)
 def setup_logging(seed_dir: Path):
     """
     Log to console + seed_dir/train.log
@@ -66,11 +67,38 @@ def setup_logging(seed_dir: Path):
 
     logger.info(f"Logging to {log_file}")
 
+'''
+
+def setup_logging(seed_dir: Path):
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    log_file = seed_dir / "train.log"
+
+    # Get the ROOT logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+
+    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+
+    # Console handler
+    ch = logging.StreamHandler()
+    ch.setFormatter(fmt)
+    root_logger.addHandler(ch)
+
+    # File handler
+    fh = logging.FileHandler(log_file)
+    fh.setFormatter(fmt)
+    root_logger.addHandler(fh)
+
+    # You can still log via the module logger
+    logger.info(f"Logging to {log_file}")
+
+
 
 # ----------------------------
 # Main training function
 # ----------------------------
-def main(config_path: str):
+def build_training_experiment(config_path: str):
     cfg = load_config(config_path)
     logger.info(f"Loaded config from {config_path}")
 
@@ -162,6 +190,13 @@ def main(config_path: str):
     )
     logger.info(
         f"labels dtype       = {labels.dtype}, device = {labels.device}"
+
+    )
+
+    logger.info(
+    f"pixel_values: min={pixel_values.min().item():.4f}, "
+    f"max={pixel_values.max().item():.4f}, "
+    f"mean={pixel_values.mean().item():.4f}"
     )
 
     # --- num_classes from data & consistency check ---
@@ -323,6 +358,12 @@ def main(config_path: str):
         val_dataloaders=val_loader,
     )
 
+    # Debug: see if any submodule starts in eval mode
+    for name, module in lit_model.named_modules():
+        if not module.training:
+            print("Module in eval mode at start:", name)
+            break
+
     # ----------------------------------------------------
     # 8. TEST 
     # ----------------------------------------------------
@@ -339,13 +380,13 @@ def main(config_path: str):
 # ----------------------------
 # CLI ENTRY
 # ----------------------------
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to config JSON",
-    )
-    args = parser.parse_args()
-    main(args.config)
+#if __name__ == "__main__":
+    #parser = argparse.ArgumentParser()
+    #parser.add_argument(
+        #"--config",
+        #type=str,
+        #required=True,
+        #help="Path to config JSON",
+    #)
+    #args = parser.parse_args()
+    #main(args.config)

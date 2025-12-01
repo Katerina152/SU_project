@@ -369,7 +369,8 @@ def create_image_dataloader(dataset, batch_size=32, num_workers=4, balanced=Fals
     else:
         sampler = None
         
-
+    persistent = num_workers > 0
+    
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -377,6 +378,7 @@ def create_image_dataloader(dataset, batch_size=32, num_workers=4, balanced=Fals
         sampler=sampler,
         num_workers=num_workers,
         pin_memory=True,
+        persistent_workers=persistent,
     )
 
 def _split_dataset_random(dataset, val_split: float = 0.2, test_split: float = 0.0):

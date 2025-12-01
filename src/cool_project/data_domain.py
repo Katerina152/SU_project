@@ -1,6 +1,10 @@
 from typing import Dict
 from .dataloader import create_image_data_loaders
 from .preprocessing import build_transformation_pipeline
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 DOMAIN_DATASET_MAP = {
     "dermatology": "ISIC2019",
@@ -25,6 +29,11 @@ def create_domain_loaders(
     train_transform = build_transformation_pipeline(resolution, train=True)
     eval_transform  = build_transformation_pipeline(resolution, train=False)
     test_transform = build_transformation_pipeline(resolution, train=False)
+
+    logger.info(f"[{domain}] Train transform:\n{train_transform}")
+    logger.info(f"[{domain}] Eval  transform:\n{eval_transform}")
+    logger.info(f"[{domain}] Test  transform:\n{test_transform}")
+
 
     loaders = create_image_data_loaders(
         dataset_name=dataset_name,
