@@ -10,6 +10,6 @@ num_classes: 2
 output_dir: ISIC2019/isic_vit_binary_224/seed_42
 profile_flops: true
 seed: 42
-task: single_label_classification
+task: segmentation
 top_k: 5
 weight_decay: 0.0

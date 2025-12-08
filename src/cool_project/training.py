@@ -352,14 +352,13 @@ def build_training_experiment(config_path: str):
     # Start from train config
     exp_cfg = cfg["train"].copy()
 
-    task = exp_cfg.get("task", "single_label_classification").lower()
-    exp_cfg["task"] = task
+    exp_cfg["task"] = train_task
     exp_cfg["num_classes"] = num_classes_cfg
     exp_cfg["experiment_name"] = exp_name
     exp_cfg["output_dir"] = str(seed_dir)
    
 
-    logger.info(f"Lightning task         = {task}")
+    logger.info(f"Lightning task         = {train_task}")
     logger.info(f"Lightning output_dir   = {seed_dir}")
     logger.info("Lightning experiment_name set to empty string for flat structure.")
 

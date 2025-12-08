@@ -150,31 +150,7 @@ def build_metrics_for_task(
         metrics["r2"] = R2Score()
         metrics["explained_variance"] = ExplainedVariance()
         return metrics
-    
-    '''
-    # ------------------------------------------------------
-    # 4) Segmentation
-    # ------------------------------------------------------
-    if task == "segmentation":
-        if num_classes is None:
-            raise ValueError("num_classes is required for segmentation")
 
-        # logits: [B, C, H, W]
-        # labels: [B, H, W]
-        # For binary segmentation use task="binary"
-        if num_classes == 2:
-            metrics["miou"] = JaccardIndex(task="binary")
-            metrics["dice"] = DiceScore(task="binary")
-        else:
-            metrics["miou"] = JaccardIndex(task="multiclass", num_classes=num_classes)
-            metrics["dice"] = DiceScore(task="multiclass", num_classes=num_classes)
-
-        return metrics
-'''
-
-    # ------------------------------------------------------
-    # 4) Segmentation
-    # ------------------------------------------------------
     # ------------------------------------------------------
     # 4) Segmentation
     # ------------------------------------------------------
@@ -190,7 +166,7 @@ def build_metrics_for_task(
 
         metrics["dice"] = DiceScore(
             num_classes=num_classes,
-            input_format="index",   # <— key change
+            input_format="index",   
         )
 
         return metrics
