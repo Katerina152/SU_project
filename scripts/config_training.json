@@ -37,6 +37,6 @@
     "top_k": 5,
     "seed": 42, 
     "profile_flops": true,
-    "flops_batch": 10
+    "flops_batch": 1
   }
 }

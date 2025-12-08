@@ -12,8 +12,8 @@ from typing import Dict
 from pathlib import Path
 from .metrics import build_metrics_for_task
 import psutil
-#from deepspeed.profiling.flops_profiler.profiler import FlopsProfiler
-#from lightning.pytorch.strategies import DeepSpeedStrategy
+from fvcore.nn import FlopCountAnalysis
+
 
 try:
     from deepspeed.ops.adam import DeepSpeedCPUAdam
@@ -259,14 +259,27 @@ class LightningModel(L.LightningModule):
             lr=self.lr,
             weight_decay=self.weight_decay,
         )
+
         return optimizer
 
+
+    def _move_metrics_to_device(self):
+        """Ensure all torchmetrics live on the same device as the model."""
+        device = self.device
+        for metric_dict in [self.train_metrics, self.val_metrics, self.test_metrics]:
+            for m in metric_dict.values():
+                m.to(device)
     def on_fit_start(self):
+        self._move_metrics_to_device()
         if not self.profile_flops:
             return
 
         if not HAVE_DEEPSPEED or FlopsProfiler is None:
-            print("[LightningModel] profile_flops=True but DeepSpeed/FlopsProfiler not available. Skipping FLOPs profiling.")
+            print(
+                "[LightningModel] profile_flops=True but DeepSpeed/FlopsProfiler not "
+                "available. Will use fvcore-based FLOPs estimation instead."
+            )
+            self.profiler = None
             return
 
         # If using DeepSpeedStrategy, pass its engine, else just pass the model
@@ -276,13 +289,55 @@ class LightningModel(L.LightningModule):
         else:
             self.profiler = FlopsProfiler(self.model)
 
+
+
     def on_train_batch_start(self, batch, batch_idx):
-        if not self.profile_flops or self.profiler is None or self._flops_profiled:
+        if not self.profile_flops or self._flops_profiled:
             return
 
-        if batch_idx == self.flops_batch:
+        # Only do anything on the selected batch
+        if batch_idx != self.flops_batch:
+            return
+
+        # If we have a DeepSpeed profiler, use it (your existing behavior)
+        if self.profiler is not None:
             self.profiler.start_profile()
             self._batch_profile_start_time = time.time()
+            return
+
+        # ---------- fvcore fallback (no DeepSpeed) ----------
+        # batch = (pixel_values, labels)
+        pixel_values, labels = batch
+        pixel_values = pixel_values.to(self.device)
+
+        self.model.eval()
+        with torch.no_grad():
+            flops_analysis = FlopCountAnalysis(self.model, pixel_values)
+            total_flops = flops_analysis.total()
+
+        gflops = total_flops / 1e9
+
+        # Log into Lightning
+        self.log(
+            "flops_g",
+            gflops,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+        )
+
+        # Save to file in your output_dir
+        flops_path = self.output_dir / "flops_fvcore.log"
+        with open(flops_path, "w") as f:
+            f.write(f"Batch index: {batch_idx}\n")
+            f.write(f"Batch size: {pixel_values.shape[0]}\n")
+            f.write(f"Total FLOPs (this batch): {total_flops}\n")
+            f.write(f"GFLOPs (this batch): {gflops:.3f}\n")
+
+        print(f"[LightningModel] Saved fvcore FLOPs info to {flops_path}")
+
+        # Make sure we only do this once
+        self._flops_profiled = True
 
 
     def on_train_batch_end(self, outputs, batch, batch_idx):

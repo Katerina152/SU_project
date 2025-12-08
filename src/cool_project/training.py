@@ -26,6 +26,15 @@ from cool_project.backbones_heads.models import build_model_from_config
 from cool_project.lightning_model import LightningModel
 from cool_project.data_domain import create_domain_loaders, DOMAIN_DATASET_MAP
 from cool_project.dataloader import is_multilabel_from_config
+from cool_project.training_utils import build_trainer_from_env
+from transformers.utils import default_cache_path
+import os
+
+print("HF default cache path:", default_cache_path)
+print("HF_HOME:", os.getenv("HF_HOME"))
+print("TRANSFORMERS_CACHE:", os.getenv("TRANSFORMERS_CACHE"))
+
+
 
 import logging
 
@@ -322,11 +331,36 @@ def build_training_experiment(config_path: str):
 
     logger.info(f"Checkpoints will be saved under: {ckpt_dir}")
 
+
+
     # ----------------------------------------------------
-    # 6. TRAINER
+    # 6. TRAINER (SLURM + hardware driven, no gpus in config)
     # ----------------------------------------------------
-    use_gpu = torch.cuda.is_available() and exp_cfg.get("gpus", 0) > 0
-    logger.info(f"use_gpu = {use_gpu}")
+    # Number of GPUs SLURM (or the environment) made visible to this process
+    num_visible = torch.cuda.device_count()
+
+    # Number of nodes from SLURM, or 1 if running locally / not under SLURM
+    num_nodes = int(
+        os.environ.get("SLURM_JOB_NUM_NODES",
+                       os.environ.get("SLURM_NNODES", "1"))
+    )
+
+    # Decide whether we will use GPU at all
+    use_gpu = num_visible > 0
+
+    # If we have GPUs and/or multiple nodes, decide strategy
+    if use_gpu and (num_visible > 1 or num_nodes > 1):
+        strategy = "ddp"
+    else:
+        strategy = "auto"
+
+    # ---- Debug logging so we can see what's happening ----
+    logger.info("===== Trainer hardware configuration =====")
+    logger.info(f"SLURM num_nodes          = {num_nodes}")
+    logger.info(f"CUDA visible GPUs        = {num_visible}")
+    logger.info(f"use_gpu                  = {use_gpu}")
+    logger.info(f"Chosen Lightning strategy= {strategy}")
+    logger.info("=========================================")
 
     trainer_kwargs = dict(
         max_epochs=exp_cfg.get("max_epochs", 10),
@@ -338,16 +372,19 @@ def build_training_experiment(config_path: str):
     if use_gpu:
         trainer_kwargs.update(
             accelerator="gpu",
-            devices=exp_cfg.get("gpus", 1),
+            devices=num_visible,   # use all GPUs SLURM gave us
+            num_nodes=num_nodes,
+            strategy=strategy,
         )
     else:
+        logger.warning("No GPUs visible: falling back to CPU training.")
         trainer_kwargs.update(
             accelerator="cpu",
             devices=1,
+            num_nodes=1,
         )
 
     trainer = L.Trainer(**trainer_kwargs)
-
     # ----------------------------------------------------
     # 7. FIT
     # ----------------------------------------------------
