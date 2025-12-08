@@ -2,12 +2,12 @@
 #SBATCH --job-name=train_for_classification
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
-#SBATCH --partition=gpu               # <--- IMPORTANT: adjust if Sherlock uses a different GPU partition name
-#SBATCH --gres=gpu:1                   # request 1 GPU
+#SBATCH --partition=gpu               
+#SBATCH --gres=gpu:1                   
 #SBATCH --nodes=1 
 #SBATCH --ntasks=1  
 #SBATCH --cpus-per-task=1  
-#SBATCH --time=02:00:00               # 2 hours, change as needed
+#SBATCH --time=02:00:00              
 #SBATCH --mem=32G
 
 
