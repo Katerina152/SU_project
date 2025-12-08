@@ -10,7 +10,6 @@ def parse_args():
         help="Which function to run (training for now)"
 
     )
-
     parser.add_argument(
         "--config",
         type=str,

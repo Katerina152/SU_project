@@ -111,8 +111,6 @@ class GenericCSVDataset(Dataset):
         df = pd.read_csv(csv_path)
         print(f"Loaded {len(df)} entries from '{csv_path}'.")
 
-
-        
         # -------- Basic sanity: must have an 'image' column --------
         if "image" not in df.columns:
             raise ValueError(f"CSV '{csv_path}' must contain an 'image' column.")
@@ -210,6 +208,129 @@ class GenericCSVDataset(Dataset):
 
         return img, label
 
+class DistillDataset(Dataset):
+    """
+    Wraps an existing dataset that returns (image, label)
+    and replaces labels with precomputed teacher embeddings.
+    """
+    def __init__(self, base_dataset: Dataset, teacher_embs: torch.Tensor):
+        self.base_dataset = base_dataset
+        self.teacher_embs = teacher_embs
+
+        if len(self.base_dataset) != len(self.teacher_embs):
+            raise ValueError(
+                f"Base dataset length {len(self.base_dataset)} != "
+                f"teacher_embs length {len(self.teacher_embs)}"
+            )
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, idx):
+        # base dataset returns (image_tensor, label)
+        img, _ = self.base_dataset[idx]   # ignore original label
+        teacher_emb = self.teacher_embs[idx]
+        return img, teacher_emb
+
+'''
+class SegmentationDataset(Dataset):
+    """
+    Dataset for segmentation: returns (image, mask).
+
+    Expected layout (example):
+        data/<dataset_name>/<split>/images/*.jpg
+        data/<dataset_name>/<split>/masks/*.png
+    """
+    def __init__(self, image_dir: str, mask_dir: str, transform=None):
+        self.image_paths = sorted(glob.glob(os.path.join(image_dir, "*.jpg")))
+        self.mask_paths = sorted(glob.glob(os.path.join(mask_dir, "*.png")))
+        self.transform = transform
+
+        if len(self.image_paths) != len(self.mask_paths):
+            raise ValueError(
+                f"Number of images ({len(self.image_paths)}) "
+                f"!= number of masks ({len(self.mask_paths)})"
+            )
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        # base dataset returns (image_tensor, label)
+        img_path = self.image_paths[idx]   # ignore original label
+        mask_paths = self.mask_paths[idx] 
+
+        img = Image.open(img_path).convert("RGB")
+        mask = Image.open(mask_path)  # usually single-channel
+
+        img = transforms.ToTensor()(img)
+        mask=torch.from_numpy(np.array(mask)).long()
+
+        if self.transform is not None:
+            img, mask = self.transform(img, mask)
+        return img, mask
+
+'''
+class SegmentationDataset(Dataset):
+    """
+    Dataset for segmentation: returns (image, mask).
+
+    Expected layout:
+        data/<dataset_name>/<split>/images/**/<img_files>
+        data/<dataset_name>/<split>/masks/*.png
+    """
+    def __init__(self, image_dir: str, mask_dir: str, transform=None):
+        # collect images recursively
+        image_paths = []
+        for root, _, files in os.walk(image_dir):
+            for fname in files:
+                if fname.lower().endswith((".jpg", ".jpeg", ".png")):
+                    image_paths.append(os.path.join(root, fname))
+        self.image_paths = sorted(image_paths)
+
+        # collect masks (can be non-recursive if they’re all directly in masks/)
+        mask_paths = []
+        for root, _, files in os.walk(mask_dir):
+            for fname in files:
+                if fname.lower().endswith(".png"):
+                    mask_paths.append(os.path.join(root, fname))
+        self.mask_paths = sorted(mask_paths)
+
+        self.transform = transform
+
+        if len(self.image_paths) == 0:
+            raise ValueError(f"No images found under '{image_dir}' (recursively).")
+
+        if len(self.mask_paths) == 0:
+            raise ValueError(f"No masks found under '{mask_dir}' (recursively).")
+
+        if len(self.image_paths) != len(self.mask_paths):
+            raise ValueError(
+                f"Number of images ({len(self.image_paths)}) "
+                f"!= number of masks ({len(self.mask_paths)})"
+            )
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        mask_path = self.mask_paths[idx]
+
+        # IMPORTANT: keep as PIL here, the SegmentationTransform expects PIL
+        img = Image.open(img_path).convert("RGB")
+        mask = Image.open(mask_path)
+
+        if self.transform is not None:
+            img, mask = self.transform(img, mask)
+        else:
+            img = transforms.ToTensor()(img)
+            mask = torch.from_numpy(np.array(mask)).long()
+
+        return img, mask
+
+
+
 # ------------------------------------------------------------
 # High-level helper: load by dataset name + split only
 # ------------------------------------------------------------
@@ -283,6 +404,12 @@ def load_dataset(
         img_ext=img_ext,
     )
 
+def load_segmentation_dataset(dataset_name: str, split: str, transform=None) -> SegmentationDataset:
+    dataset_dir = os.path.join(DATA_ROOT, dataset_name, split)
+    image_dir = os.path.join(dataset_dir, "images")
+    mask_dir = os.path.join(dataset_dir, "masks")
+    return SegmentationDataset(image_dir=image_dir, mask_dir=mask_dir, transform=transform)
+
 
 # Load Dataset for precomputed embeddings
 class Embedding_Dataset(Dataset):
@@ -298,9 +425,6 @@ class Embedding_Dataset(Dataset):
         emb = torch.load(emb_path)          
         emb = torch.tensor(emb, dtype=torch.float32)
         return emb
-
-
-
 
 #DataLoaders and weighted samplers for class imbalance
 
@@ -525,6 +649,180 @@ def create_image_data_loaders(
     )
 
     return loaders
+
+'''
+def create_segmentation_data_loaders(
+    dataset_name: str,
+    train_transform=None,
+    eval_transform=None,
+    test_transform=None,
+    val_split: float = 0.0,
+    batch_size: int = 4,
+    num_workers: int = 4,
+):
+    """
+    High-level helper for segmentation datasets:
+      - uses SegmentationDataset (images + masks)
+      - optional random val split if no val/ folder
+
+    Layout:
+        data/<dataset_name>/<split>/images/*.jpg
+        data/<dataset_name>/<split>/masks/*.png
+
+    Returns:
+        dict with keys: "train", optionally "val", and "test".
+    """
+    loaders = {}
+
+    # ---------- TRAIN ----------
+    train_ds = load_segmentation_dataset(
+        dataset_name=dataset_name,
+        split="train",
+        transform=train_transform,
+    )
+    print(f"[create_segmentation_data_loaders] Loaded train_ds with {len(train_ds)} samples.")
+
+    # ---------- VAL (optional folder) ----------
+    try:
+        val_ds = load_segmentation_dataset(
+            dataset_name=dataset_name,
+            split="val",
+            transform=eval_transform,
+        )
+    except FileNotFoundError:
+        val_ds = None
+
+    # If no val folder but val_split>0, carve from train
+    if val_ds is None and val_split > 0.0:
+        print(f"[create_segmentation_data_loaders] No 'val' folder; splitting {val_split*100:.1f}% from train.")
+        train_ds, val_ds, _ = _split_dataset_random(
+            train_ds,
+            val_split=val_split,
+            test_split=0.0,
+        )
+        print(f"[create_segmentation_data_loaders] After split: train={len(train_ds)}, val={len(val_ds)}")
+
+        # ensure validation uses eval_transform if possible
+        if eval_transform is not None and hasattr(val_ds, "dataset"):
+            val_ds.dataset.transform = eval_transform
+
+    # ---------- TEST ----------
+    test_ds = load_segmentation_dataset(
+        dataset_name=dataset_name,
+        split="test",
+        transform=test_transform,
+    )
+
+    # ---------- BUILD LOADERS ----------
+    loaders["train"] = create_image_dataloader(
+        train_ds,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        balanced=False,   # usually no per-image balancing for seg
+        shuffle=True,
+    )
+
+    if val_ds is not None:
+        loaders["val"] = create_image_dataloader(
+            val_ds,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            balanced=False,
+            shuffle=False,
+        )
+
+    loaders["test"] = create_image_dataloader(
+        test_ds,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        balanced=False,
+        shuffle=False,
+    )
+
+    return loaders
+'''
+def create_segmentation_data_loaders(
+    dataset_name: str,
+    train_transform=None,
+    eval_transform=None,
+    test_transform=None,
+    val_split: float = 0.0,
+    batch_size: int = 4,
+    num_workers: int = 4,
+):
+    loaders = {}
+
+    # ---------- TRAIN ----------
+    train_ds = load_segmentation_dataset(
+        dataset_name=dataset_name,
+        split="train",
+        transform=train_transform,
+    )
+    print(f"[create_segmentation_data_loaders] Loaded train_ds with {len(train_ds)} samples.")
+
+    # ---------- VAL (optional folder) ----------
+    try:
+        val_ds = load_segmentation_dataset(
+            dataset_name=dataset_name,
+            split="val",
+            transform=eval_transform,
+        )
+        # If dataset exists but is empty, treat as missing
+        if len(val_ds) == 0:
+            raise ValueError("Empty val segmentation dataset.")
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[create_segmentation_data_loaders] No usable 'val' folder ({e}); will use val_split if > 0.")
+        val_ds = None
+
+    # If no usable val folder but val_split>0, carve from train (IN MEMORY ONLY)
+    if val_ds is None and val_split > 0.0:
+        print(f"[create_segmentation_data_loaders] No 'val' folder; splitting {val_split*100:.1f}% from train.")
+        train_ds, val_ds, _ = _split_dataset_random(
+            train_ds,
+            val_split=val_split,
+            test_split=0.0,
+        )
+        print(f"[create_segmentation_data_loaders] After split: train={len(train_ds)}, val={len(val_ds)}")
+
+        # ensure validation uses eval_transform if possible
+        if eval_transform is not None and hasattr(val_ds, "dataset"):
+            val_ds.dataset.transform = eval_transform
+
+    # ---------- TEST ----------
+    test_ds = load_segmentation_dataset(
+        dataset_name=dataset_name,
+        split="test",
+        transform=test_transform,
+    )
+
+    # ---------- BUILD LOADERS ----------
+    loaders["train"] = create_image_dataloader(
+        train_ds,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        balanced=False,
+        shuffle=True,
+    )
+
+    if val_ds is not None:
+        loaders["val"] = create_image_dataloader(
+            val_ds,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            balanced=False,
+            shuffle=False,
+        )
+
+    loaders["test"] = create_image_dataloader(
+        test_ds,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        balanced=False,
+        shuffle=False,
+    )
+
+    return loaders
+
 
 def is_multilabel_from_config(cfg: dict) -> bool:
     """

@@ -1,8 +1,10 @@
 from torchvision import transforms
 from typing import List
+from torchvision.transforms import functional as F
+import numpy as np
+import torch
 
 # ---- Atomic building blocks ----
-
 BASE_TRANSFORMS = {
     "to_tensor": transforms.ToTensor(),
     "normalize_imagenet": transforms.Normalize(
@@ -128,6 +130,41 @@ def build_pipeline_for_model(
                 BASE_TRANSFORMS["to_tensor"],
                 BASE_TRANSFORMS["normalize_imagenet"],
             ])
+
+class SegmentationTransform:
+    def __init__(self, size: int, train: bool = True):
+        self.size = size
+        self.train = train
+
+    def __call__(self, img, mask):
+        # 1) resize both
+        img = F.resize(img, (self.size, self.size),
+                       interpolation=F.InterpolationMode.BICUBIC)
+        mask = F.resize(mask, (self.size, self.size),
+                        interpolation=F.InterpolationMode.NEAREST)
+
+        # 2) random flip with same decision
+        if self.train and torch.rand(1) < 0.5:
+            img  = F.hflip(img)
+            mask = F.hflip(mask)
+
+        # 3) image: to tensor + normalize
+        img = F.to_tensor(img)
+        img = F.normalize(
+            img,
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        )
+
+        # 4) mask: to LongTensor of class ids
+        mask_np = np.array(mask)
+        mask_t  = torch.from_numpy(mask_np).long()
+
+        return img, mask_t
+
+
+def build_segmentation_transform(size: int, train: bool = True):
+    return SegmentationTransform(size=size, train=train)
 
 
 def build_transformation_pipeline(size: int, train: bool = True):
