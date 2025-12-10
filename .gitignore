@@ -23,3 +23,7 @@ metrics.csv
 # Python
 __pycache__/
 *.pyc
+
+
+# Data files
+**data/
