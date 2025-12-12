@@ -1,0 +1,17 @@
+{
+  "dataset": "ISIC2019",
+  "domain": "dermatology",
+  "experiment_name": "isic_dinov3_emb_512",
+  "seed": 42,
+  "model": "dino_timm",
+  "model_info": {
+    "hf_model_name": null
+  },
+  "resolution": 512,
+  "embedding_dim": 384,
+  "num_samples": {
+    "train": 18,
+    "val": 2,
+    "test": 20
+  }
+}

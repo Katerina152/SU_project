@@ -47,36 +47,6 @@ def load_config(path: str):
     with open(path, "r") as f:
         return json.load(f)
 
-'''
-
-def setup_logging(seed_dir: Path):
-    """
-    Log to console + seed_dir/train.log
-
-    seed_dir example:
-        ISIC2019/isic_vit_binary_224/seed_0
-    """
-    seed_dir.mkdir(parents=True, exist_ok=True)
-    log_file = seed_dir / "train.log"
-
-    logger.setLevel(logging.INFO)
-    logger.handlers.clear()
-
-    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
-
-    # Console
-    ch = logging.StreamHandler()
-    ch.setFormatter(fmt)
-    logger.addHandler(ch)
-
-    # File
-    fh = logging.FileHandler(log_file)
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
-
-    logger.info(f"Logging to {log_file}")
-
-'''
 
 def setup_logging(seed_dir: Path):
     seed_dir.mkdir(parents=True, exist_ok=True)
@@ -112,10 +82,25 @@ def build_training_experiment(config_path: str):
     logger.info(f"Loaded config from {config_path}")
 
     # ----------------------------
-    # Task type / multilabel
+    # Task type / multilabel / segmentation
     # ----------------------------
-    is_multilabel = is_multilabel_from_config(cfg)
-    return_one_hot = is_multilabel
+    train_task = cfg.get("task", "single_label_classification").lower()
+    model_type = cfg["model"].get("type", "vit").lower()
+
+    is_segmentation = (train_task == "segmentation" or model_type == "seg_vit")
+
+    if is_segmentation:
+        # segmentation: masks, not one-hot
+        is_multilabel = False
+        return_one_hot = False
+    else:
+        # classification/regression: keep old logic
+        is_multilabel = is_multilabel_from_config(cfg)
+        return_one_hot = is_multilabel
+
+    logger.info(f"train_task = {train_task}")
+    logger.info(f"model_type = {model_type}")
+    logger.info(f"is_segmentation = {is_segmentation}")
     logger.info(f"is_multilabel_from_config(cfg) = {is_multilabel}")
     logger.info(f"return_one_hot = {return_one_hot}")
 
@@ -188,44 +173,159 @@ def build_training_experiment(config_path: str):
         logger.info(f"#test batches per epoch:  {len(test_loader)}")
     except TypeError:
         logger.warning("One of the dataloaders has no __len__ (infinite / iterable).")
+    
+
+    # ----------------------------------------------------
+    # 1b. If distillation is enabled, wrap *all* splits with DistillDataset
+    # ----------------------------------------------------
+    distill_on = cfg["train"].get("distill", False)
+
+    if distill_on:
+        logger.info(f"Distillation flag from config: {distill_on}")
+        teacher_cfg = cfg.get("teacher", {})
+        emb_root = teacher_cfg.get("embeddings_path", None)
+
+        if emb_root is None:
+            raise ValueError(
+                "distill=True but no teacher.embeddings_path provided in config."
+            )
+
+        # Collect base datasets for each split
+        base_datasets = {}
+        if train_loader is not None:
+            base_datasets["train"] = train_loader.dataset
+        if val_loader is not None:
+            base_datasets["val"] = val_loader.dataset
+        if test_loader is not None:
+            base_datasets["test"] = test_loader.dataset
+
+        # Build a temporary student model just to query embedding dim D
+        student_model = build_model_from_config(cfg)
+        try:
+            D = student_model.vit.config.hidden_size
+        except AttributeError:
+            D = student_model.backbone.config.hidden_size
+
+        teacher_embs_by_split = {}
+
+        for split_name, base_ds in base_datasets.items():
+            N = len(base_ds)
+
+            # Derive a path per split, e.g. "path/to/emb.pt" -> "path/to/emb_train.pt" etc.
+            if emb_root.endswith(".pt"):
+                stem = emb_root[:-3]
+                emb_path = f"{stem}_{split_name}.pt"
+            else:
+                # if emb_root is a directory, save inside it
+                emb_path = str(Path(emb_root) / f"teacher_{split_name}.pt")
+
+            if not os.path.exists(emb_path):
+                logger.warning(f"Teacher embeddings file not found for {split_name}: {emb_path}")
+                logger.warning(f"Creating RANDOM teacher embeddings for {split_name} (debug).")
+                teacher_embs = torch.randn(N, D)
+                torch.save(teacher_embs, emb_path)
+                logger.warning(f"Saved random teacher embeddings to: {emb_path}")
+                logger.warning(f"Shape: {teacher_embs.shape}")
+            else:
+                logger.info(f"Loading teacher embeddings for {split_name} from: {emb_path}")
+                teacher_embs = torch.load(emb_path)
+
+            if teacher_embs.ndim != 2:
+                raise ValueError(
+                    f"[{split_name}] Expected teacher_embs to have shape [N, D], "
+                    f"but got {teacher_embs.shape}. Please regenerate teacher embeddings."
+                )
+
+            if teacher_embs.shape[0] != N:
+                raise ValueError(
+                    f"[{split_name}] Teacher embeddings length {teacher_embs.shape[0]} != "
+                    f"{split_name} dataset length {N}"
+                )
+
+            teacher_embs_by_split[split_name] = teacher_embs
+
+        # Now wrap each split with DistillDataset -> (image, teacher_emb)
+        def make_loader(base_ds, teacher_embs, shuffle):
+            return DataLoader(
+                DistillDataset(base_ds, teacher_embs),
+                batch_size=data_cfg.get("batch_size", 32),
+                num_workers=data_cfg.get("num_workers", 4),
+                shuffle=shuffle,
+                pin_memory=True,
+            )
+
+        if "train" in base_datasets:
+            train_loader = make_loader(base_datasets["train"], teacher_embs_by_split["train"], shuffle=True)
+            loaders["train"] = train_loader
+            logger.info("Distillation mode: train_loader now returns (image, teacher_emb).")
+
+        if "val" in base_datasets:
+            val_loader = make_loader(base_datasets["val"], teacher_embs_by_split["val"], shuffle=False)
+            loaders["val"] = val_loader
+            logger.info("Distillation mode: val_loader now returns (image, teacher_emb).")
+
+        if "test" in base_datasets:
+            test_loader = make_loader(base_datasets["test"], teacher_embs_by_split["test"], shuffle=False)
+            loaders["test"] = test_loader
+            logger.info("Distillation mode: test_loader now returns (image, teacher_emb).")
 
     # --- Inspect first batch shapes for sanity ---
     first_batch = next(iter(train_loader))
-    pixel_values, labels = first_batch
-    logger.info(f"First train batch pixel_values.shape = {pixel_values.shape}")
-    logger.info(f"First train batch labels.shape       = {labels.shape}")
-    logger.info(
-        f"pixel_values dtype = {pixel_values.dtype}, device = {pixel_values.device}"
-    )
-    logger.info(
-        f"labels dtype       = {labels.dtype}, device = {labels.device}"
 
-    )
+    if distill_on:
+        pixel_values, teacher_embs = first_batch
+        logger.info(f"First train batch pixel_values.shape = {pixel_values.shape}")
+        logger.info(f"First train batch teacher_embs.shape = {teacher_embs.shape}")
+        logger.info(
+            f"pixel_values dtype = {pixel_values.dtype}, device = {pixel_values.device}"
+        )
+        logger.info(
+            f"teacher_embs dtype = {teacher_embs.dtype}, device = {teacher_embs.device}"
+        )
+    else:
+        pixel_values, labels = first_batch
+        logger.info(f"First train batch pixel_values.shape = {pixel_values.shape}")
+        logger.info(f"First train batch labels.shape       = {labels.shape}")
+        logger.info(
+            f"pixel_values dtype = {pixel_values.dtype}, device = {pixel_values.device}"
+        )
+        logger.info(
+            f"labels dtype       = {labels.dtype}, device = {labels.device}"
+        )
 
-    logger.info(
-    f"pixel_values: min={pixel_values.min().item():.4f}, "
-    f"max={pixel_values.max().item():.4f}, "
-    f"mean={pixel_values.mean().item():.4f}"
-    )
 
-    # --- num_classes from data & consistency check ---
     base_train_ds = getattr(train_loader.dataset, "dataset", train_loader.dataset)
     num_classes_data = getattr(base_train_ds, "num_classes", None)
 
     cfg_head = cfg["model"].get("head", {})
     num_classes_cfg = cfg_head.get("output_dim")
 
-    if num_classes_data is not None and num_classes_cfg is not None:
-        if num_classes_data != num_classes_cfg:
+    if is_segmentation:
+        # For segmentation we rely on the config
+        if num_classes_cfg is None:
             raise ValueError(
-                f"num_classes from data ({num_classes_data}) != "
+                "Segmentation task but model.head.output_dim is not set in config. "
+                "Please set it to the number of segmentation classes."
+            )
+        # optional: if your SegmentationDataset has num_classes, you can still check consistency
+        if num_classes_data is not None and num_classes_data != num_classes_cfg:
+            raise ValueError(
+                f"[segmentation] num_classes from data ({num_classes_data}) != "
                 f"model.head.output_dim from config ({num_classes_cfg})."
             )
-    elif num_classes_data is not None and num_classes_cfg is None:
-        # optional: auto-fill config if missing
-        cfg["model"].setdefault("head", {})
-        cfg["model"]["head"]["output_dim"] = num_classes_data
-        num_classes_cfg = num_classes_data
+    else:
+        # Original classification / regression logic
+        if num_classes_data is not None and num_classes_cfg is not None:
+            if num_classes_data != num_classes_cfg:
+                raise ValueError(
+                    f"num_classes from data ({num_classes_data}) != "
+                    f"model.head.output_dim from config ({num_classes_cfg})."
+                )
+        elif num_classes_data is not None and num_classes_cfg is None:
+            # auto-fill config
+            cfg["model"].setdefault("head", {})
+            cfg["model"]["head"]["output_dim"] = num_classes_data
+            num_classes_cfg = num_classes_data
 
     logger.info(f"num_classes (data) = {num_classes_data}")
     logger.info(f"num_classes (cfg)  = {num_classes_cfg}")
@@ -247,6 +347,12 @@ def build_training_experiment(config_path: str):
             f"Total label sum across all classes: {sum(class_sums.values())} "
             f"(num_samples = {len(df)})"
         )
+    
+    print(type(train_loader.dataset))
+    # might be Subset or GenericCSVDataset or DistillDataset
+
+    if hasattr(train_loader.dataset, "dataset"):
+        print("Underlying dataset type:", type(train_loader.dataset.dataset))
 
 
     # ----------------------------------------------------
@@ -262,8 +368,8 @@ def build_training_experiment(config_path: str):
     # Start from train config
     exp_cfg = cfg["train"].copy()
 
-    task = exp_cfg.get("task", "single_label_classification").lower()
-    exp_cfg["task"] = task
+    #task = exp_cfg.get("task", "single_label_classification").lower()
+    exp_cfg["task"] =  train_task
     exp_cfg["num_classes"] = num_classes_cfg
     exp_cfg["experiment_name"] = exp_name
     exp_cfg["output_dir"] = str(seed_dir)

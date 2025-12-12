@@ -1,8 +1,10 @@
 from torchvision import transforms
 from typing import List
+from torchvision.transforms import functional as F
+import numpy as np
+import torch
 
 # ---- Atomic building blocks ----
-
 BASE_TRANSFORMS = {
     "to_tensor": transforms.ToTensor(),
     "normalize_imagenet": transforms.Normalize(
@@ -20,7 +22,6 @@ BASE_TRANSFORMS = {
     "random_resized_crop_224": transforms.RandomResizedCrop(224, scale=(0.2, 1.0)),
 }
 
-
 def make_resize(size: int):
     """
     Resize to (size, size) using Bicubic interpolation (good for medical images).
@@ -29,7 +30,6 @@ def make_resize(size: int):
         (size, size),
         interpolation=transforms.InterpolationMode.BICUBIC,
     )
-
 
 def build_transform(transform_names: List[str]):
     """
@@ -97,11 +97,12 @@ def build_pipeline_for_model(
                 ),
             ])
 
-    elif model_type == "dino":
+    elif model_type in ["dino", "dino_timm"]:
         # Stronger augmentations for self-supervised / DINO-like
         if mode == "train":
             return transforms.Compose([
-                transforms.RandomResizedCrop(size, scale=(0.2, 1.0)),
+                resize,
+                #transforms.RandomResizedCrop(size, scale=(0.2, 1.0)),
                 BASE_TRANSFORMS["to_tensor"],
                 BASE_TRANSFORMS["normalize_imagenet"],
             ])
@@ -129,6 +130,36 @@ def build_pipeline_for_model(
                 BASE_TRANSFORMS["normalize_imagenet"],
             ])
 
+class SegmentationTransform:
+    def __init__(self, size: int, train: bool = True):
+        self.size = size
+        self.train = train
+
+    def __call__(self, img, mask):
+        # 1) resize both
+        img = F.resize(img, (self.size, self.size),
+                       interpolation=F.InterpolationMode.BICUBIC)
+        mask = F.resize(mask, (self.size, self.size),
+                        interpolation=F.InterpolationMode.NEAREST)
+
+        # 2) random flip with same decision
+        if self.train and torch.rand(1) < 0.5:
+            img  = F.hflip(img)
+            mask = F.hflip(mask)
+
+        # 3) image: to tensor + normalize
+        img = F.to_tensor(img)
+        img = F.normalize(
+            img,
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        )
+
+        # 4) mask: to LongTensor of class ids
+        mask_np = np.array(mask)
+        mask_t  = torch.from_numpy(mask_np).long()
+
+        return img, mask_t
 
 def build_transformation_pipeline(size: int, train: bool = True):
     """
@@ -138,64 +169,5 @@ def build_transformation_pipeline(size: int, train: bool = True):
     mode = "train" if train else "eval"
     return build_pipeline_for_model("vit", size, mode)
 
-'''
-# Single building blocks
-TRANSFORMS = {
-    "resize_224": transforms.Resize((224, 224)),
-    "resize_256": transforms.Resize((256, 256)),
-    "center_crop_224": transforms.CenterCrop(224),
-    "random_crop_224": transforms.RandomCrop(224),
-    "hflip": transforms.RandomHorizontalFlip(),
-    "vflip": transforms.RandomVerticalFlip(),
-    "color_jitter": transforms.ColorJitter(
-        brightness=0.2,
-        contrast=0.2,
-        saturation=0.2,
-        hue=0.1,
-    ),
-    "to_tensor": transforms.ToTensor(),
-    "normalize_imagenet": transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225],
-    ),
-}
-
-def build_transform(transform_names):
-    """
-    Build a torchvision transform pipeline from a list of names.
-    """
-    steps = [TRANSFORMS[name] for name in transform_names]
-    return transforms.Compose(steps)
-
-'''
-'''
-TRANSFORMS = {
-    "to_tensor": transforms.ToTensor(),
-    "normalize_imagenet": transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225],
-    ),
-    "hflip": transforms.RandomHorizontalFlip(),
-    "color_jitter": transforms.ColorJitter(
-        brightness=0.2,
-        contrast=0.2,
-        saturation=0.2,
-        hue=0.1,
-    ),
-}
-
-def make_resize(size):
-    # high-quality interpolation
-    return transforms.Resize((size, size), interpolation=transforms.InterpolationMode.BICUBIC)
-
-def build_medical_pipeline(size):
-    return transforms.Compose([
-        make_resize(size),
-        TRANSFORMS["hflip"],
-        TRANSFORMS["color_jitter"],
-        TRANSFORMS["to_tensor"],
-        TRANSFORMS["normalize_imagenet"],
-    ])
-
-
-'''
+def build_segmentation_transform(size: int, train: bool = True):
+    return SegmentationTransform(size=size, train=train)

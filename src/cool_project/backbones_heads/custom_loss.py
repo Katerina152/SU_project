@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F 
 
 
-class CustomLoss(nn.Module):
+class EmbeddingDistillationLoss(nn.Module):
     def __init__(self, lamda_feat: float= 1.0, lamda_cos: float= 1.0):
         """
         Implements:
@@ -21,6 +21,10 @@ class CustomLoss(nn.Module):
         student_emb: [B, D] student embeddings (h_s)
         teacher_emb: [B, D] teacher embeddings (h_t)
         """
+
+        student_emb = student_emb.float()
+        teacher_emb = teacher_emb.float()
+        
         if student_emb.shape != teacher_emb.shape:
             raise ValueError("Student and teacher embeddings must have the same shape"
                              f" but got {student_emb.shape} and {teacher_emb.shape}")
@@ -33,6 +37,5 @@ class CustomLoss(nn.Module):
         cos_term = (1.0 - cos_sim).mean()
 
         # custom operation/paper
-        loss = self.lambda_feat * l2_term + self.lambda_cos * cos_term
+        loss = self.lamda_feat * l2_term + self.lamda_cos * cos_term
         return loss
-

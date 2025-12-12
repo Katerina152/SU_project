@@ -1,15 +1,15 @@
 {
   "experiment_name": "isic_vit_binary_224",
-  "output_dir": "runs",
+  "output_dir": "runs_seg",
 
-  "task": "single_label_classification",
+  "task": "segmentation",
 
   "teacher": {
-    "embeddings_path": "teacher_embs_random.pt"
-  },
+  "embeddings_path": "teacher_embs_random.pt"
+},
 
   "data": {
-    "domain": "dermatology",
+    "domain": "derm_segmentation",
     "resolution": 224,
     "batch_size": 32,
     "num_workers": 4,
@@ -20,6 +20,7 @@
   "class_weights": null,
 
   "model": {
+    "type": "seg_vit",
     "backbone": {
       "hf_model_name": "google/vit-base-patch16-224",
       "pooling": "cls",
@@ -28,19 +29,18 @@
     },
     "head": {
       "type": "linear",
-      "output_dim": 9,
+      "output_dim": 2,
       "output_activation": null
     },
     "loss_type": "ce"
   },
 
   "train": {
-    "distill": false,
+    "distill":false,
     "lamda_feat":1.0,
     "lamda_cos":1.0,
     "lr": 1e-4,
     "weight_decay": 0.0,
-    "dropout_rate": 0.1, 
     "max_epochs": 2,
     "early_stopping_patience": 5,
     "top_k": 5,
@@ -49,3 +49,4 @@
     "flops_batch": 10
   }
 }
+

@@ -1,0 +1,27 @@
+{
+  "experiment_name": "isic_dinov3_emb_512",
+  "output_dir": "runs",
+
+  "data": {
+    "domain": "dermatology",
+    "resolution": 512,
+    "batch_size": 32,
+    "num_workers": 4,
+    "val_split": 0.1
+  },
+
+  "model": {
+  "type": "dino_timm",
+  "backbone": {
+    "type": "timm_dino",
+    "model_name": "vit_small_patch16_224.dino",
+    "pooling": "cls",
+    "freeze_backbone": true,
+    "img_size": 512
+  }
+},
+
+  "train": {
+    "seed": 42
+  }
+}

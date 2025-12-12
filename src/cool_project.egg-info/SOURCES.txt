@@ -4,10 +4,12 @@ src/cool_project/__main__.py
 src/cool_project/args_parser.py
 src/cool_project/data_domain.py
 src/cool_project/dataloader.py
+src/cool_project/extract_embeddings.py
 src/cool_project/lightning_model.py
 src/cool_project/metrics.py
 src/cool_project/preprocessing.py
 src/cool_project/training.py
+src/cool_project/training_utils.py
 src/cool_project.egg-info/PKG-INFO
 src/cool_project.egg-info/SOURCES.txt
 src/cool_project.egg-info/dependency_links.txt

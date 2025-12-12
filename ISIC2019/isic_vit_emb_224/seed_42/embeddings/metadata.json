@@ -1,0 +1,17 @@
+{
+  "dataset": "ISIC2019",
+  "domain": "dermatology",
+  "experiment_name": "isic_vit_emb_224",
+  "seed": 42,
+  "model": "dino",
+  "model_info": {
+    "hf_model_name": "google/vit-base-patch16-224"
+  },
+  "resolution": 224,
+  "embedding_dim": 768,
+  "num_samples": {
+    "train": 18,
+    "val": 2,
+    "test": 20
+  }
+}

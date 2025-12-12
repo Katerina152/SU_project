@@ -1,10 +1,3 @@
-from torchmetrics import (
-    Accuracy,
-    Precision,
-    Recall,
-    F1Score,
-    AUROC
-)
 from torchmetrics.classification import (
     BinaryAccuracy,
     BinaryPrecision,
@@ -44,10 +37,13 @@ from torchmetrics.regression import (
 )
 
 
+from torchmetrics import JaccardIndex
+from torchmetrics.segmentation import DiceScore
+
 def build_metrics_for_task(
     task: str,
     num_classes: Optional[int] = None,
-    top_k: int = 5,
+    top_k: Optional[int] = 5,
 ) -> Dict[str, nn.Module]:
 
     task = task.lower()
@@ -74,10 +70,11 @@ def build_metrics_for_task(
             metrics["accuracy"] = MulticlassAccuracy(num_classes=num_classes)
 
             # Top-K accuracy 
-            metrics[f"top{top_k}_accuracy"] = MulticlassAccuracy(
-                num_classes=num_classes,
-                top_k=top_k,
-            )
+            if top_k is not None:
+                metrics[f"top{top_k}_accuracy"] = MulticlassAccuracy(
+                    num_classes=num_classes,
+                    top_k=top_k,
+                )
 
             metrics["precision_macro"] = MulticlassPrecision(
                 num_classes=num_classes,
@@ -152,6 +149,26 @@ def build_metrics_for_task(
         metrics["mae"] = MeanAbsoluteError()
         metrics["r2"] = R2Score()
         metrics["explained_variance"] = ExplainedVariance()
+        return metrics
+
+    # ------------------------------------------------------
+    # 4) Segmentation
+    # ------------------------------------------------------
+    if task == "segmentation":
+        if num_classes is None:
+            raise ValueError("num_classes is required for segmentation")
+
+        # We will feed class indices [B, H, W] to both metrics.
+        metrics["miou"] = JaccardIndex(
+            task="multiclass",
+            num_classes=num_classes,
+        )
+
+        metrics["dice"] = DiceScore(
+            num_classes=num_classes,
+            input_format="index",   
+        )
+
         return metrics
 
     # ------------------------------------------------------

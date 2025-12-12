@@ -10,4 +10,4 @@ matplotlib
 transformers
 psutil
 tensorboardX>=2.6
-
+fvcore
