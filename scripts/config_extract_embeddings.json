@@ -3,10 +3,12 @@
   "output_dir": "runs",
   "data": {
     "domain": "dermatology",
+    "dataset_name": "ISIC2017",
     "resolution": 512,
     "batch_size": 32,
     "num_workers": 4,
     "val_split": 0.1
+
   },
   "model": {
     "type": "vit",

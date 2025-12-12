@@ -22,11 +22,13 @@ def create_domain_loaders(
     balanced_train: bool = False,
     val_split: float = 0.0,
     return_one_hot: bool = False,
+
 ):
     if domain not in DOMAIN_DATASET_MAP:
         raise ValueError(f"Unknown domain: {domain}")
 
-    dataset_name = DOMAIN_DATASET_MAP[domain]
+    default_name = DOMAIN_DATASET_MAP[domain]
+    dataset_name = dataset_name or default_name
 
     if domain.endswith("_segmentation"):
         train_transform = build_segmentation_transform(resolution, train=True)

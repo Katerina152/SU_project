@@ -46,6 +46,7 @@ nvidia-smi --query-gpu=timestamp,name,utilization.gpu,memory.total,memory.used \
            --format=csv -l 10 > logs/gpu_usage_$SLURM_JOBID.log 2>&1 &
 NVIDIA_SMI_PID=$!
 
+export DATA_ROOT=/scratch/users/ksa828/data
 
 
 # -------------------------------------------------------

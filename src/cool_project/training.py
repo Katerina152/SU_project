@@ -152,6 +152,7 @@ def build_training_experiment(config_path: str):
     # Create domain loaders
     loaders = create_domain_loaders(
         domain=domain,
+        dataset_variant=dataset_variant,
         resolution=data_cfg["resolution"],
         batch_size=data_cfg.get("batch_size", 32),
         num_workers=data_cfg.get("num_workers", 4),

@@ -79,6 +79,7 @@ def build_embedding_experiment(config_path: str):
     # ----------------------------
     loaders = create_domain_loaders(
         domain=domain,
+        dataset_variant=dataset_variant,
         resolution=data_cfg["resolution"],
         batch_size=data_cfg.get("batch_size", 32),
         num_workers=data_cfg.get("num_workers", 4),
