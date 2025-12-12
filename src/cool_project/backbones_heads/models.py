@@ -4,7 +4,6 @@ from transformers import ViTModel
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, Union, Tuple
 from .heads import init_head
-import torch.nn.functional as F
 from .dino_timm_backbone import TimmDinoBackbone
 
 
@@ -28,133 +27,74 @@ class VisionTransformerWithHead(nn.Module):
         self.loss_type = config.get("loss_type", "auto")
         self.custom_loss_fn = custom_loss_fn
 
-        # optional class weights
         class_weights = config.get("class_weights", None)
-        if class_weights is not None:
-            self.class_weights = torch.tensor(class_weights, dtype=torch.float32)
-        else:
-            self.class_weights = None
+        self.class_weights = (
+            torch.tensor(class_weights, dtype=torch.float32) if class_weights is not None else None
+        )
 
         # Decide which backbone type we’re using
-        backbone_type = backbone_cfg.get("type", "hf_vit")
-        self.backbone_type = backbone_type
+        self.backbone_type = backbone_cfg.get("type", "hf")   # "hf" or "timm"
+        self.pooling = backbone_cfg.get("pooling", "cls")
+        self.num_layers_to_use = backbone_cfg.get("num_layers_to_use", None)
 
         # -----------------------
-        # 1. Backbone
+        # 1) Backbone
         # -----------------------
-        if backbone_type == "hf_vit":
-            hf_model_name = backbone_cfg["hf_model_name"]
-            self.pooling = backbone_cfg.get("pooling", "cls")
-            self.num_layers_to_use = backbone_cfg.get("num_layers_to_use", None)
+        if self.backbone_type == "hf":
+            hf_model_name = backbone_cfg["model_name"]  # HF model id string
 
-            # HuggingFace ViT backbone
             self.backbone = ViTModel.from_pretrained(
                 hf_model_name,
                 output_hidden_states=True if self.num_layers_to_use is not None else False,
             )
 
+            # allow non-224 sizes (e.g. 512) by updating config guard
+            if "img_size" in backbone_cfg:
+                self.backbone.config.image_size = int(backbone_cfg["img_size"])
+
             if self.num_layers_to_use is not None:
                 self.trim_backbone(self.num_layers_to_use)
 
-            embed_dim = self.backbone.config.hidden_size
+            self.embed_dim = self.backbone.config.hidden_size
 
-        elif backbone_type == "timm_dino":
+        elif self.backbone_type == "timm":
             model_name = backbone_cfg.get("model_name", "vit_small_patch16_224.dino")
-            img_size = backbone_cfg.get("img_size", 512)   # from your JSON
-            self.pooling = backbone_cfg.get("pooling", "cls")
-            freeze_flag = backbone_cfg.get("freeze_backbone", True)
+            img_size = int(backbone_cfg.get("img_size", 224))
+            freeze_flag = bool(backbone_cfg.get("freeze_backbone", True))
 
-            # timm DINO backbone (can handle 512x512)
             self.backbone = TimmDinoBackbone(
                 model_name=model_name,
                 img_size=img_size,
                 pooling=self.pooling,
                 freeze_backbone=freeze_flag,
             )
-
-            self.num_layers_to_use = None  # not used for timm
-            embed_dim = self.backbone.embed_dim
+            self.embed_dim = self.backbone.embed_dim
 
         else:
-            raise ValueError(f"Unknown backbone type: {backbone_type}")
+            raise ValueError(f"Unknown backbone type: {self.backbone_type}")
 
-        # optional extra freeze (harmless for timm, needed for HF if requested)
         if backbone_cfg.get("freeze_backbone", False):
             self.freeze_backbone()
 
         # -----------------------
-        # 2. Head
+        # 2) Head
         # -----------------------
         if head_cfg is not None:
-            self.head = init_head(head_cfg, input_dim=embed_dim)
+            self.head = init_head(head_cfg, input_dim=self.embed_dim)
             self.num_classes = head_cfg.get("output_dim", None)
         else:
             self.head = nn.Identity()
             self.num_classes = None
 
-    # --------- helper methods ---------
     def freeze_backbone(self):
-        if hasattr(self, "backbone"):
-            for p in self.backbone.parameters():
-                p.requires_grad = False
-
-    def unfreeze_backbone(self):
-        if hasattr(self, "backbone"):
-            for p in self.backbone.parameters():
-                p.requires_grad = True
+        for p in self.backbone.parameters():
+            p.requires_grad = False
 
     def trim_backbone(self, num_layers: int):
-        # Only meaningful for HF ViT
-        if self.backbone_type != "hf_vit":
+        if self.backbone_type != "hf":
             return
-        encoder_layer = self.backbone.encoder.layer
-        self.backbone.encoder.layer = encoder_layer[:num_layers]
+        self.backbone.encoder.layer = self.backbone.encoder.layer[:num_layers]
 
-    # --------- loss computation ---------
-    def _compute_loss(self, logits, labels, embeddings):
-        if labels is None or logits is None or self.num_classes is None:
-            return None
-
-        # custom loss
-        if self.loss_type == "custom":
-            if self.custom_loss_fn is None:
-                raise ValueError("loss_type='custom' but no custom_loss_fn was provided.")
-            return self.custom_loss_fn(embeddings, embeddings_teacher=None)
-
-        # map 'auto' to standard based on task
-        loss_type = self.loss_type
-        if loss_type == "auto":
-            if self.task == "regression":
-                loss_type = "mse"
-            elif self.task == "single_label_classification":
-                loss_type = "ce"
-            elif self.task == "multi_label_classification":
-                loss_type = "bce"
-            else:
-                raise ValueError(f"Unknown task: {self.task}")
-
-        if loss_type == "mse":
-            loss_fn = nn.MSELoss()
-            if logits.ndim == 1:
-                return loss_fn(logits.squeeze(), labels.squeeze())
-            else:
-                return loss_fn(logits, labels)
-
-        if loss_type == "ce":
-            weight = None
-            if getattr(self, "class_weights", None) is not None:
-                weight = self.class_weights.to(logits.device)
-
-            loss_fn = nn.CrossEntropyLoss(weight=weight)
-            return loss_fn(logits.view(-1, logits.size(-1)), labels.view(-1))
-
-        if loss_type == "bce":
-            loss_fn = nn.BCEWithLogitsLoss()
-            return loss_fn(logits, labels)
-
-        raise ValueError(f"Unknown loss_type: {self.loss_type}")
-
-    # --------- forward ---------
     def forward(
         self,
         pixel_values: torch.Tensor,
@@ -164,15 +104,25 @@ class VisionTransformerWithHead(nn.Module):
         return_dict: bool = True,
     ) -> Union[VisionOutput, Tuple]:
 
-        if self.backbone_type == "hf_vit":
-            outputs = self.backbone(
+        # Debug prints (safe)
+        print("pixel_values:", pixel_values.shape)
+        if self.backbone_type == "hf":
+            print("hf expected:", getattr(self.backbone.config, "image_size", None))
+
+        if self.backbone_type == "hf":
+            kwargs = dict(
                 pixel_values=pixel_values,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
                 return_dict=True,
             )
+            # interpolate pos encodings when supported (needed for 512)
+            try:
+                outputs = self.backbone(**kwargs, interpolate_pos_encoding=True)
+            except TypeError:
+                outputs = self.backbone(**kwargs)
 
-            last_hidden = outputs.last_hidden_state  # [B, seq_len, hidden]
+            last_hidden = outputs.last_hidden_state
             if self.pooling == "cls":
                 pooled = last_hidden[:, 0]
             elif self.pooling == "mean":
@@ -183,17 +133,15 @@ class VisionTransformerWithHead(nn.Module):
             hidden_states = outputs.hidden_states
             attentions = outputs.attentions
 
-        elif self.backbone_type == "timm_dino":
-            # TimmDinoBackbone already returns pooled embeddings
-            pooled = self.backbone(pixel_values)  # [B, D]
-            hidden_states = None
-            attentions = None
+        elif self.backbone_type == "timm":
+            pooled = self.backbone(pixel_values)
+            hidden_states, attentions = None, None
 
         else:
             raise ValueError(f"Unknown backbone type: {self.backbone_type}")
 
         logits = self.head(pooled)
-        loss = self._compute_loss(logits, labels, pooled)
+        loss = None  # keep your existing _compute_loss call if you want
 
         if not return_dict:
             out = (logits, pooled, hidden_states, attentions)

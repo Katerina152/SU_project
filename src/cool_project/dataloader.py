@@ -206,7 +206,8 @@ class GenericCSVDataset(Dataset):
             # single-label: index of max value
             label = int(label_vector.argmax().item())
 
-        return img, label
+        return img, label, image_id
+
 
 class DistillDataset(Dataset):
     """

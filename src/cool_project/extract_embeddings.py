@@ -166,16 +166,28 @@ def build_embedding_experiment(config_path: str):
             return None
         logger.info(f"[extract] Extracting embeddings for split: {split}")
 
-        preds = trainer.predict(
-            extractor,
-            dataloaders=loader,
-        )  # list of [B, D] tensors
+        preds = trainer.predict(extractor, dataloaders=loader)
 
-        embs = torch.cat(preds, dim=0).cpu()
+        all_embs, all_labels, all_ids = [], [], []
+        for p in preds:
+            all_embs.append(p["embeddings"])     # already on CPU if you used .cpu() in predict_step
+            all_labels.append(p["labels"])
+            all_ids.extend(p["image_ids"])
+
+        embs = torch.cat(all_embs, dim=0)        # [N, D]
+        labs = torch.cat(all_labels, dim=0)      # [N] or [N, C]
+
         path = emb_dir / f"{split}_embeddings.pt"
-        torch.save(embs, path)
-        logger.info(f"[extract] Saved {split} embeddings to {path}, shape = {embs.shape}")
-        return embs
+        torch.save(
+            {"embeddings": embs, "labels": labs, "image_ids": all_ids},
+            path,
+        )
+        logger.info(
+            f"[extract] Saved {split} embeddings to {path}, "
+            f"embeddings shape={embs.shape}, labels shape={labs.shape}, ids={len(all_ids)}"
+        )
+        return {"embeddings": embs, "labels": labs, "image_ids": all_ids}
+
 
     emb_train = run_and_save("train", train_loader)
     emb_val   = run_and_save("val",   val_loader)
@@ -184,17 +196,17 @@ def build_embedding_experiment(config_path: str):
     # ----------------------------
     # 6. metadata.json
     # ----------------------------
-    # pick any non-None tensor to infer embedding_dim
+    # pick any non-None split to infer embedding_dim
     if emb_train is not None:
-        some_emb = emb_train
+        some = emb_train
     elif emb_val is not None:
-        some_emb = emb_val
+        some = emb_val
     elif emb_test is not None:
-        some_emb = emb_test
+        some = emb_test
     else:
         raise RuntimeError("No embeddings were generated (no loaders).")
 
-    emb_dim = some_emb.shape[-1]
+    emb_dim = some["embeddings"].shape[-1]
     resolution = data_cfg["resolution"]
 
     meta = {
@@ -204,14 +216,15 @@ def build_embedding_experiment(config_path: str):
         "seed": seed,
         "model": cfg["model"].get("type", "vit"),
         "model_info": {
-            "hf_model_name": cfg["model"]["backbone"].get("hf_model_name", None),
+            "model_name": cfg["model"]["backbone"].get("model_name", None),
+            "backbone_type": cfg["model"]["backbone"].get("type", None),
         },
         "resolution": resolution,
-        "embedding_dim": emb_dim,
+        "embedding_dim": int(emb_dim),
         "num_samples": {
-            "train": int(emb_train.shape[0]) if emb_train is not None else 0,
-            "val":   int(emb_val.shape[0])   if emb_val   is not None else 0,
-            "test":  int(emb_test.shape[0])  if emb_test  is not None else 0,
+            "train": int(emb_train["embeddings"].shape[0]) if emb_train is not None else 0,
+            "val":   int(emb_val["embeddings"].shape[0])   if emb_val   is not None else 0,
+            "test":  int(emb_test["embeddings"].shape[0])  if emb_test  is not None else 0,
         },
     }
 
@@ -221,11 +234,3 @@ def build_embedding_experiment(config_path: str):
 
     logger.info(f"[extract] Wrote metadata to {meta_path}")
     logger.info("[extract] Finished embedding extraction.")
-
-
-# Optional entry point
-# if __name__ == "__main__":
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument("--config", type=str, required=True)
-#     args = parser.parse_args()
-#     build_embedding_experiment(args.config)

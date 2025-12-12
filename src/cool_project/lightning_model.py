@@ -493,9 +493,14 @@ class LightningEmbeddingExtractor(L.LightningModule):
     def __init__(self, model):
         super().__init__()
         self.model = model
-        self.embeddings = []
 
     def predict_step(self, batch, batch_idx):
-        pixel_values, *_ = batch
+        pixel_values, labels, image_ids = batch
+
         out = self.model(pixel_values=pixel_values)
-        return out.embeddings   # [B, D]
+
+        return {
+            "embeddings": out.embeddings.detach().cpu(),  # [B, D]
+            "labels": labels.detach().cpu(),              # [B] or [B, C]
+            "image_ids": list(image_ids),                 # list[str], length B
+        }
