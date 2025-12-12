@@ -23,3 +23,6 @@ metrics.csv
 # Python
 __pycache__/
 *.pyc
+
+ISIC2019/*
+!ISIC2019/.gitkeep
