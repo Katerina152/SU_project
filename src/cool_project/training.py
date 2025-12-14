@@ -152,7 +152,7 @@ def build_training_experiment(config_path: str):
     # Create domain loaders
     loaders = create_domain_loaders(
         domain=domain,
-        dataset_variant=dataset_variant,
+        dataset_name=data_cfg.get("dataset_name"),
         resolution=data_cfg["resolution"],
         batch_size=data_cfg.get("batch_size", 32),
         num_workers=data_cfg.get("num_workers", 4),
@@ -383,6 +383,7 @@ def build_training_experiment(config_path: str):
     lit_model = LightningModel(
         model=model,
         cfg=exp_cfg,
+        distill_on=distill_on,
     )
 
     # ----------------------------------------------------
@@ -519,18 +520,3 @@ def build_training_experiment(config_path: str):
         )
 
     logger.info("Training script finished.")
-
-
-# ----------------------------
-# CLI ENTRY
-# ----------------------------
-#if __name__ == "__main__":
-    #parser = argparse.ArgumentParser()
-    #parser.add_argument(
-        #"--config",
-        #type=str,
-        #required=True,
-        #help="Path to config JSON",
-    #)
-    #args = parser.parse_args()
-    #main(args.config)

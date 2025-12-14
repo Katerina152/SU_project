@@ -1,0 +1,55 @@
+{
+  "experiment_name": "isic_distillation_vit_binary_224",
+  "output_dir": "runs",
+
+  "task": "distillation",
+
+  "teacher": {
+  "embeddings_dir": "ISIC2017/seed_42/isic_dinov3_emb_512/embeddings",
+  "embedding_dim": 384
+  }, 
+
+  "data": {
+    "domain": "dermatology",
+    "dataset_name": "ISIC2017",
+    "resolution": 224,
+    "batch_size": 32,
+    "num_workers": 4,
+    "balanced_train": false,
+    "val_split": 0.1
+  },
+
+  "class_weights": null,
+
+  "model": {
+    "type": "vit",
+    "backbone": {
+      "type": "hf",
+      "model_name": "google/vit-base-patch16-224",
+      "pooling": "cls",
+      "num_layers_to_use": null,
+      "freeze_backbone": false,
+      "img_size": 224
+    },
+    "head": {
+      "type": "identity",
+      "output_activation": null
+    },
+    "loss_type": "custom"
+  },
+
+  "train": {
+    "lamda_feat":1.0,
+    "lamda_cos":1.0,
+    "lr": 1e-4,
+    "weight_decay": 0.0,
+    "dropout_rate": 0.1, 
+    "max_epochs": 2,
+    "early_stopping_patience": 5,
+    "top_k": 5,
+    "seed": 42, 
+    "profile_flops": true,
+    "flops_batch": 10
+  }
+}
+

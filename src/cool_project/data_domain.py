@@ -16,6 +16,7 @@ DOMAIN_DATASET_MAP = {
 
 def create_domain_loaders(
     domain: str,
+    dataset_name: str | None,  
     resolution: int,
     batch_size: int,
     num_workers: int,

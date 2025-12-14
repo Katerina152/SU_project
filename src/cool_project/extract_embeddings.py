@@ -57,14 +57,17 @@ def build_embedding_experiment(config_path: str):
     domain = data_cfg["domain"]
     logger.info(f"[extract] Domain = {domain}")
 
-    dataset_name = DOMAIN_DATASET_MAP.get(domain)
+    # --- dataset name: config overrides domain default ---
+    dataset_name = data_cfg.get("dataset_name") or DOMAIN_DATASET_MAP.get(domain)
     if dataset_name is None:
         raise ValueError(
             f"Unknown domain '{domain}'. Please add it to DOMAIN_DATASET_MAP."
         )
 
+    logger.info(f"[extract] Using dataset_name = {dataset_name}")
+
     dataset_root = Path(dataset_name)
-    exp_root = dataset_root / exp_name
+    exp_root = out_root / dataset_root / exp_name
     seed_dir = exp_root / f"seed_{seed}"
     seed_dir.mkdir(parents=True, exist_ok=True)
 
@@ -79,7 +82,7 @@ def build_embedding_experiment(config_path: str):
     # ----------------------------
     loaders = create_domain_loaders(
         domain=domain,
-        dataset_variant=dataset_variant,
+        dataset_name=data_cfg.get("dataset_name"),
         resolution=data_cfg["resolution"],
         batch_size=data_cfg.get("batch_size", 32),
         num_workers=data_cfg.get("num_workers", 4),

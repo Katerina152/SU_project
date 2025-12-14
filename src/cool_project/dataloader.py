@@ -48,7 +48,9 @@ SRC_ROOT = os.path.dirname(THIS_DIR)
 PROJECT_ROOT = os.path.dirname(SRC_ROOT)
 
 # Data directory: <repo>/data
-DATA_ROOT = os.path.join(PROJECT_ROOT, "data")
+#DATA_ROOT = os.path.join(PROJECT_ROOT, "data")
+DATA_ROOT = os.environ.get("DATA_ROOT", os.path.join(PROJECT_ROOT, "data"))
+
 
 
 class GenericCSVDataset(Dataset):
@@ -206,7 +208,7 @@ class GenericCSVDataset(Dataset):
             # single-label: index of max value
             label = int(label_vector.argmax().item())
 
-        return return img, label, image_id
+        return img, label, image_id
 
 
 class DistillDataset(Dataset):
@@ -232,6 +234,83 @@ class DistillDataset(Dataset):
         img, _ = self.base_dataset[idx]   # ignore original label
         teacher_emb = self.teacher_embs[idx]
         return img, teacher_emb
+
+
+class DistillDatasetById(Dataset):
+    """
+    Safer distillation dataset.
+    Matches teacher embeddings to samples by image_id.
+    Intended for use with precomputed embeddings from a separate run.
+    """
+
+    def __init__(self, base_dataset, id_to_embedding: dict):
+        self.base_dataset = base_dataset
+        self.id_to_embedding = id_to_embedding
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def _get_id(self, idx):
+        if hasattr(self.base_dataset, "get_id"):
+            return str(self.base_dataset.get_id(idx))
+
+        if hasattr(self.base_dataset, "image_ids"):
+            return str(self.base_dataset.image_ids[idx])
+
+        if hasattr(self.base_dataset, "df"):
+            row = self.base_dataset.df.iloc[idx]
+            for key in ["image", "image_id", "id", "filename"]:
+                if key in row:
+                    return str(row[key])
+
+        raise RuntimeError(
+            "Cannot infer image_id from base_dataset. "
+            "Expose get_id(), image_ids, or df['image']."
+        )
+
+    def __getitem__(self, idx):
+        item = self.base_dataset[idx]
+        img = item[0] if isinstance(item, (tuple, list)) else item
+
+        image_id = self._get_id(idx)
+        if image_id not in self.id_to_embedding:
+            raise KeyError(f"No teacher embedding for image_id='{image_id}'")
+
+        return img, self.id_to_embedding[image_id]
+
+def load_teacher_id_map(embeddings_dir: Path, split: str) -> Dict[str, torch.Tensor]:
+    """
+    Loads <split>_embeddings.pt and returns a mapping image_id -> embedding tensor.
+    """
+    emb_path = embeddings_dir / f"{split}_embeddings.pt"
+    if not emb_path.exists():
+        raise FileNotFoundError(f"[distill] Missing teacher embeddings file: {emb_path}")
+
+    obj = torch.load(emb_path, map_location="cpu")
+    if not isinstance(obj, dict):
+        raise ValueError(
+            f"[distill] Expected dict from {emb_path} (with keys embeddings/image_ids). Got: {type(obj)}"
+        )
+
+    embs = obj.get("embeddings", None)
+    ids = obj.get("image_ids", None)
+
+    if embs is None or ids is None:
+        raise ValueError(
+            f"[distill] {emb_path} must contain keys 'embeddings' and 'image_ids'. "
+            f"Found keys: {list(obj.keys())}"
+        )
+
+    if not torch.is_tensor(embs) or embs.ndim != 2:
+        raise ValueError(f"[distill] embeddings must be a tensor [N, D]. Got: {type(embs)} {getattr(embs, 'shape', None)}")
+
+    if len(ids) != embs.shape[0]:
+        raise ValueError(f"[distill] image_ids length {len(ids)} != embeddings rows {embs.shape[0]} for {emb_path}")
+
+    # Store as CPU tensors; DataLoader will move x to GPU later in LightningModel if needed
+    id_to_emb = {str(i): embs[k].float().cpu() for k, i in enumerate(ids)}
+    logger.info(f"[distill] Loaded teacher map for split='{split}': N={len(id_to_emb)}, D={embs.shape[1]}")
+    return id_to_emb
 
 class SegmentationDataset(Dataset):
     """
