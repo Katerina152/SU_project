@@ -151,7 +151,7 @@ def run_distillation(config_path: str):
     exp_cfg["output_dir"] = str(seed_dir)
     #exp_cfg["distill_on"] = True  # make it explicit for LightningModel
 
-    lit_model = DistillLightningModel(student_model, exp_cfg)
+    lit_model = LightningDistillModel(student_model, exp_cfg)
 
     # Loggers
     tb_logger = TensorBoardLogger(save_dir=str(seed_dir), name="", version="")
@@ -181,9 +181,6 @@ def run_distillation(config_path: str):
             save_last=True,
             save_top_k=0,
         ))
-
-
-    callbacks.append(ModelCheckpoint(dirpath=ckpt_dir, filename="best", monitor="val_loss" if val_loader is not None else None, save_top_k=1, mode="min"))
 
     # Hardware (same pattern you used)
     num_visible = torch.cuda.device_count()

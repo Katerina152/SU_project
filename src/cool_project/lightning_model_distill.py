@@ -37,6 +37,11 @@ class LightningDistillModel(L.LightningModule):
         self.cfg = cfg
         self.save_hyperparameters(cfg)
 
+        teacher_dim = int(cfg["teacher"]["embedding_dim"])   # add this to config
+        student_dim = int(getattr(model, "embed_dim"))
+
+        self.proj = torch.nn.Linear(student_dim, teacher_dim) if student_dim != teacher_dim else torch.nn.Identity()
+
         self.distill_loss = EmbeddingDistillationLoss(
             lamda_feat=cfg.get("lamda_feat", 1.0),
             lamda_cos=cfg.get("lamda_cos", 1.0),
