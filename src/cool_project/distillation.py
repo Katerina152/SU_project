@@ -32,6 +32,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from cool_project.dataloader import DistillDatasetById, load_teacher_id_map
 from cool_project.backbones_heads.models import build_model_from_config
 from cool_project.lightning_model_distill import LightningDistillModel
+from cool_project.lightning_model_distill import LightningDistillModel
 from cool_project.data_domain import create_domain_loaders, DOMAIN_DATASET_MAP
 
 

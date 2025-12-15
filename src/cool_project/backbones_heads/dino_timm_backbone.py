@@ -59,20 +59,5 @@ class TimmDinoBackbone(nn.Module):
             else:
                 raise ValueError(f"Unknown feature dict keys: {feats.keys()}")
 
-        # tensor output
-        else:
-            if feats.ndim == 4:                            # [B, C, H, W]
-                out = feats.mean(dim=(2, 3))               # -> [B, C]
-            elif feats.ndim == 3:                          # [B, N, D]
-                out = feats[:, 0] if self.pooling == "cls" else feats.mean(dim=1)
-            elif feats.ndim == 2:                          # [B, D]
-                out = feats
-            else:
-                raise ValueError(f"Unexpected feats shape: {feats.shape}")
-
-        if out.ndim != 2:
-            raise ValueError(f"Expected pooled embeddings [B, D], got {out.shape}")
-
-        return out
-
-
+        # If it's just a tensor, assume already pooled (B, D)
+        return feats

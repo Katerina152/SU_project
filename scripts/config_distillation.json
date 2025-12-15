@@ -42,7 +42,6 @@
     "dropout_rate": 0.1, 
     "max_epochs": 30,
     "early_stopping_patience": 5,
-    "top_k": 5,
     "seed": 42, 
     "profile_flops": false,
     "flops_batch": 10
