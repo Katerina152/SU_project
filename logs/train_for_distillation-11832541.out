@@ -1,0 +1,57 @@
+JOB ID: 11832541
+Running on host: sh03-12n04.int
+HF_HOME=/scratch/users/ksa828/hf_cache
+DATA_ROOT=/scratch/users/ksa828/data
+GPUs allocated:
+Sun Dec 14 22:49:25 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 550.163.01             Driver Version: 550.163.01     CUDA Version: 12.4     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2080 Ti     On  |   00000000:8A:00.0 Off |                  N/A |
+|  0%   28C    P8              1W /  252W |       1MiB /  11264MiB |      0%   E. Process |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+HF default cache path: /scratch/users/ksa828/hf_cache/hub
+HF_HOME: /scratch/users/ksa828/hf_cache
+TRANSFORMERS_CACHE: /scratch/users/ksa828/hf_cache
+Parsed arguments: Namespace(function='distillation', config='scripts/config_distillation.json')
+Loaded 2000 entries from '/scratch/users/ksa828/data/ISIC2017/train/labels.csv'.
+Detected 2 classes: ['melanoma', 'seborrheic_keratosis']
+Found 26614 images under '/scratch/users/ksa828/data/ISIC2017/train/images' with extension '.jpg'.
+final dataset size after filtering missing images: 2000.
+[create_image_data_loaders] Loaded train_ds with 2000 samples.
+Loaded 150 entries from '/scratch/users/ksa828/data/ISIC2017/val/labels.csv'.
+Detected 2 classes: ['melanoma', 'seborrheic_keratosis']
+Found 150 images under '/scratch/users/ksa828/data/ISIC2017/val/images' with extension '.jpg'.
+final dataset size after filtering missing images: 150.
+Loaded 600 entries from '/scratch/users/ksa828/data/ISIC2017/test/labels.csv'.
+Detected 2 classes: ['melanoma', 'seborrheic_keratosis']
+Found 8838 images under '/scratch/users/ksa828/data/ISIC2017/test/images' with extension '.jpg'.
+final dataset size after filtering missing images: 600.
+Sanity Checking: |          | 0/? [00:00<?, ?it/s]Sanity Checking: |          | 0/? [00:00<?, ?it/s]Sanity Checking DataLoader 0:   0%|          | 0/2 [00:00<?, ?it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Sanity Checking DataLoader 0:  50%|█████     | 1/2 [00:02<00:02,  0.35it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Sanity Checking DataLoader 0: 100%|██████████| 2/2 [00:02<00:00,  0.67it/s]                                                                           Training: |          | 0/? [00:00<?, ?it/s]Training: |          | 0/? [00:00<?, ?it/s]Epoch 0:   0%|          | 0/63 [00:00<?, ?it/s]pixel_values: torch.Size([32, 3, 224, 224])
+                                               [DISTILL] pixel_values=(32, 3, 224, 224) teacher=(32, 384) student=(32, 384)
+Epoch 0:   0%|          | 0/63 [00:10<?, ?it/s]Epoch 0:   2%|▏         | 1/63 [00:10<11:04,  0.09it/s]Epoch 0:   2%|▏         | 1/63 [00:10<11:04,  0.09it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Epoch 0:   3%|▎         | 2/63 [00:10<05:32,  0.18it/s]Epoch 0:   3%|▎         | 2/63 [00:10<05:32,  0.18it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Epoch 0:   5%|▍         | 3/63 [00:11<03:42,  0.27it/s]Epoch 0:   5%|▍         | 3/63 [00:11<03:42,  0.27it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Epoch 0:   6%|▋         | 4/63 [00:11<02:47,  0.35it/s]Epoch 0:   6%|▋         | 4/63 [00:11<02:47,  0.35it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Epoch 0:   8%|▊         | 5/63 [00:16<03:12,  0.30it/s]Epoch 0:   8%|▊         | 5/63 [00:16<03:12,  0.30it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Epoch 0:  10%|▉         | 6/63 [00:20<03:19,  0.29it/s]Epoch 0:  10%|▉         | 6/63 [00:20<03:19,  0.29it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Epoch 0:  11%|█         | 7/63 [00:21<02:49,  0.33it/s]Epoch 0:  11%|█         | 7/63 [00:21<02:49,  0.33it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Epoch 0:  13%|█▎        | 8/63 [00:21<02:27,  0.37it/s]Epoch 0:  13%|█▎        | 8/63 [00:21<02:27,  0.37it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Epoch 0:  14%|█▍        | 9/63 [00:25<02:33,  0.35it/s]Epoch 0:  14%|█▍        | 9/63 [00:25<02:33,  0.35it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Epoch 0:  16%|█▌        | 10/63 [00:26<02:20,  0.38it/s]Epoch 0:  16%|█▌        | 10/63 [00:26<02:20,  0.38it/s]pixel_values: torch.Size([32, 3, 224, 224])
+Epoch 0:  16%|█▌        | 10/63 [00:34<03:01,  0.29it/s]

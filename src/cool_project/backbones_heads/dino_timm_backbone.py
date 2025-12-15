@@ -19,12 +19,21 @@ class TimmDinoBackbone(nn.Module):
         self.pooling = pooling
 
         # Create the model with no classifier head (num_classes=0 → features only)
-        self.model = timm.create_model(
-            model_name,
-            img_size=img_size,    # this lets it know about 512
-            pretrained=True,
-            num_classes=0,        # no classification head, just features
-        )
+        try:
+            self.model = timm.create_model(
+                model_name,
+                img_size=img_size,
+                pretrained=True,
+                num_classes=0,
+            )
+        except TypeError:
+            # TinyViT doesn't accept img_size
+            self.model = timm.create_model(
+                model_name,
+                pretrained=True,
+                num_classes=0,
+            )
+
         self.embed_dim = self.model.num_features
 
         if freeze_backbone:
@@ -33,23 +42,37 @@ class TimmDinoBackbone(nn.Module):
 
     @torch.no_grad()
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        x: (B, 3, H, W), e.g. (B, 3, 512, 512)
-        returns: (B, D) embeddings
-        """
         feats = self.model.forward_features(x)
 
+        # dict output
         if isinstance(feats, dict):
-            # timm ViTs often return dicts
-            if self.pooling == "cls":
-                x_tokens = feats.get("x", None)
-                if x_tokens is not None:
-                    return x_tokens[:, 0]  # CLS token
-            if "gap" in feats:
-                return feats["gap"]
-            if "x" in feats:
-                return feats["x"].mean(dim=1)
-            raise ValueError(f"Unknown feature dict keys: {feats.keys()}")
+            if "gap" in feats and feats["gap"] is not None:
+                out = feats["gap"]                         # [B, D]
+            elif "x" in feats and feats["x"] is not None:
+                t = feats["x"]
+                if t.ndim == 3:                            # [B, N, D]
+                    out = t[:, 0] if self.pooling == "cls" else t.mean(dim=1)
+                elif t.ndim == 4:                          # [B, C, H, W]
+                    out = t.mean(dim=(2, 3))
+                else:
+                    raise ValueError(f"Unexpected feats['x'] shape: {t.shape}")
+            else:
+                raise ValueError(f"Unknown feature dict keys: {feats.keys()}")
 
-        # If it's just a tensor, assume already pooled (B, D)
-        return feats
+        # tensor output
+        else:
+            if feats.ndim == 4:                            # [B, C, H, W]
+                out = feats.mean(dim=(2, 3))               # -> [B, C]
+            elif feats.ndim == 3:                          # [B, N, D]
+                out = feats[:, 0] if self.pooling == "cls" else feats.mean(dim=1)
+            elif feats.ndim == 2:                          # [B, D]
+                out = feats
+            else:
+                raise ValueError(f"Unexpected feats shape: {feats.shape}")
+
+        if out.ndim != 2:
+            raise ValueError(f"Expected pooled embeddings [B, D], got {out.shape}")
+
+        return out
+
+

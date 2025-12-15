@@ -16,5 +16,6 @@ src/cool_project.egg-info/dependency_links.txt
 src/cool_project.egg-info/top_level.txt
 src/cool_project/backbones_heads/__init__.py
 src/cool_project/backbones_heads/custom_loss.py
+src/cool_project/backbones_heads/dino_timm_backbone.py
 src/cool_project/backbones_heads/heads.py
 src/cool_project/backbones_heads/models.py

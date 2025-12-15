@@ -1,6 +1,6 @@
 {
   "experiment_name": "isic_dinov3_emb_512",
-  "output_dir": "runs",
+  "output_dir": "extracted_embeddings_512",
   "data": {
     "domain": "dermatology",
     "dataset_name": "ISIC2017",

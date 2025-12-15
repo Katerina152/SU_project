@@ -29,9 +29,9 @@ import lightning as L
 from torch.utils.data import Dataset, DataLoader
 from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
-from dataloader import DistillDatasetById, load_teacher_id_map
+from cool_project.dataloader import DistillDatasetById, load_teacher_id_map
 from cool_project.backbones_heads.models import build_model_from_config
-from cool_project.lightning_distill_model import LightningDistillModel
+from cool_project.lightning_model_distill import LightningDistillModel
 from cool_project.data_domain import create_domain_loaders, DOMAIN_DATASET_MAP
 
 
@@ -150,6 +150,7 @@ def run_distillation(config_path: str):
     exp_cfg["experiment_name"] = exp_name
     exp_cfg["output_dir"] = str(seed_dir)
     #exp_cfg["distill_on"] = True  # make it explicit for LightningModel
+    exp_cfg["teacher"] = cfg["teacher"]
 
     lit_model = LightningDistillModel(student_model, exp_cfg)
 
@@ -211,3 +212,4 @@ def run_distillation(config_path: str):
         trainer.test(lit_model, dataloaders=test_loader)
 
     logger.info("[distill] Done.")
+

@@ -1,0 +1,117 @@
+The following modules were not unloaded:
+  (Use "module --force purge" to unload all):
+
+  1) devel   2) math
+/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/transformers/utils/hub.py:110: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+  warnings.warn(
+[rank: 0] Seed set to 42
+2025-12-14 22:50:35,993 | INFO | [distill] Logging to runs/ISIC2017/isic_distillation_vit_binary_224/seed_42/train_distill.log
+2025-12-14 22:50:35,993 | INFO | [distill] Domain=dermatology dataset_name=ISIC2017
+2025-12-14 22:50:35,993 | INFO | [distill] seed_dir=runs/ISIC2017/isic_distillation_vit_binary_224/seed_42
+2025-12-14 22:50:35,993 | INFO | [dermatology] Train transform:
+Compose(
+    Resize(size=(224, 224), interpolation=bicubic, max_size=None, antialias=True)
+    ToTensor()
+    Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+)
+2025-12-14 22:50:35,993 | INFO | [dermatology] Eval  transform:
+Compose(
+    Resize(size=(224, 224), interpolation=bicubic, max_size=None, antialias=True)
+    ToTensor()
+    Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+)
+2025-12-14 22:50:35,993 | INFO | [dermatology] Test  transform:
+Compose(
+    Resize(size=(224, 224), interpolation=bicubic, max_size=None, antialias=True)
+    ToTensor()
+    Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+)
+/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/torch/utils/data/dataloader.py:624: UserWarning: This DataLoader will create 4 worker processes in total. Our suggested max number of worker in current system is 2, which is smaller than what this DataLoader is going to create. Please be aware that excessive worker creation might get DataLoader running slow or even freeze, lower the worker number to avoid potential slowness/freeze if necessary.
+  warnings.warn(
+2025-12-14 22:50:36,283 | INFO | [distill] Loaded teacher map for split='train': N=2000, D=384
+2025-12-14 22:50:36,289 | INFO | [distill] Loaded teacher map for split='val': N=150, D=384
+2025-12-14 22:50:36,307 | INFO | [distill] Loaded teacher map for split='test': N=600, D=384
+2025-12-14 22:50:47,131 | INFO | [distill] First batch x.shape=torch.Size([32, 3, 224, 224]) teacher.shape=torch.Size([32, 384])
+2025-12-14 22:50:47,547 | INFO | Loading pretrained weights from Hugging Face hub (timm/tiny_vit_21m_224.in1k)
+2025-12-14 22:50:47,767 | INFO | [timm/tiny_vit_21m_224.in1k] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+2025-12-14 22:50:48,204 | INFO | [distill] Starting distillation training...
+/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/fabric/loggers/csv_logs.py:268: Experiment logs directory runs/ISIC2017/isic_distillation_vit_binary_224/seed_42/ exists and is not empty. Previous log files in this directory will be deleted when the new ones are saved!
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+
+  | Name         | Type                      | Params | Mode  | FLOPs
+---------------------------------------------------------------------------
+0 | model        | VisionTransformerWithHead | 20.6 M | train | 0    
+1 | proj         | Linear                    | 221 K  | train | 0    
+2 | distill_loss | EmbeddingDistillationLoss | 0      | train | 0    
+---------------------------------------------------------------------------
+20.8 M    Trainable params
+0         Non-trainable params
+20.8 M    Total params
+83.373    Total estimated model params size (MB)
+266       Modules in train mode
+0         Modules in eval mode
+0         Total Flops
+SLURM auto-requeueing enabled. Setting signal handlers.
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/users/ksa828/cool_project/src/cool_project/__main__.py", line 22, in <module>
+    main()
+  File "/home/users/ksa828/cool_project/src/cool_project/__main__.py", line 17, in main
+    run_distillation(args.config)
+  File "/home/users/ksa828/cool_project/src/cool_project/distillation.py", line 208, in run_distillation
+    trainer.fit(lit_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 584, in fit
+    call._call_and_handle_interrupt(
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/pytorch/trainer/call.py", line 49, in _call_and_handle_interrupt
+    return trainer_fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 630, in _fit_impl
+    self._run(model, ckpt_path=ckpt_path, weights_only=weights_only)
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 1079, in _run
+    results = self._run_stage()
+              ^^^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/pytorch/trainer/trainer.py", line 1123, in _run_stage
+    self.fit_loop.run()
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/pytorch/loops/fit_loop.py", line 217, in run
+    self.advance()
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/pytorch/loops/fit_loop.py", line 465, in advance
+    self.epoch_loop.run(self._data_fetcher)
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/pytorch/loops/training_epoch_loop.py", line 153, in run
+    self.advance(data_fetcher)
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/pytorch/loops/training_epoch_loop.py", line 335, in advance
+    response = call._call_lightning_module_hook(trainer, "on_train_batch_start", batch, batch_idx)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/lightning/pytorch/trainer/call.py", line 177, in _call_lightning_module_hook
+    output = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/home/users/ksa828/cool_project/src/cool_project/lightning_model_distill.py", line 179, in on_train_batch_start
+    total_flops = flops_analysis.total()
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/fvcore/nn/jit_analysis.py", line 248, in total
+    stats = self._analyze()
+            ^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/fvcore/nn/jit_analysis.py", line 551, in _analyze
+    graph = _get_scoped_trace_graph(self._model, self._inputs, self._aliases)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/fvcore/nn/jit_analysis.py", line 176, in _get_scoped_trace_graph
+    graph, _ = _get_trace_graph(module, inputs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/torch/jit/_trace.py", line 1498, in _get_trace_graph
+    outs = ONNXTracedModule(
+           ^^^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/torch/jit/_trace.py", line 138, in forward
+    graph, _out = torch._C._create_graph_by_tracing(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/users/ksa828/venvs/cool_project/lib/python3.12/site-packages/torch/jit/_trace.py", line 132, in wrapper
+    out_vars, _ = _flatten(outs)
+                  ^^^^^^^^^^^^^^
+RuntimeError: Only tuples, lists and Variables are supported as JIT inputs/outputs. Dictionaries and strings are also accepted, but their usage is not recommended. Here, received an input of unsupported type: VisionOutput

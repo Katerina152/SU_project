@@ -238,3 +238,4 @@ def build_embedding_experiment(config_path: str):
 
     logger.info(f"[extract] Wrote metadata to {meta_path}")
     logger.info("[extract] Finished embedding extraction.")
+

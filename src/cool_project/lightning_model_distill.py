@@ -41,10 +41,10 @@ class LightningDistillModel(L.LightningModule):
         student_dim = int(getattr(model, "embed_dim"))
 
         self.proj = torch.nn.Linear(student_dim, teacher_dim) if student_dim != teacher_dim else torch.nn.Identity()
-
+        train_cfg = cfg.get("train", {})
         self.distill_loss = EmbeddingDistillationLoss(
-            lamda_feat=cfg.get("lamda_feat", 1.0),
-            lamda_cos=cfg.get("lamda_cos", 1.0),
+            lamda_feat=train_cfg.get("lamda_feat", 1.0),
+            lamda_cos=train_cfg.get("lamda_cos", 1.0),
         )
 
         # Optimizer hyperparameters
@@ -84,7 +84,8 @@ class LightningDistillModel(L.LightningModule):
         teacher_embs = teacher_embs.to(self.device, non_blocking=True)
 
         out = self.model(pixel_values=pixel_values, labels=None)
-        student_embs = out.embeddings
+        #student_embs = out.embeddings
+        student_embs = self.proj(out.embeddings)
 
         loss = self.distill_loss(student_embs, teacher_embs)
 
@@ -101,7 +102,8 @@ class LightningDistillModel(L.LightningModule):
         teacher_embs = teacher_embs.to(self.device, non_blocking=True)
 
         out = self.model(pixel_values=pixel_values, labels=None)
-        student_embs = out.embeddings
+        #student_embs = out.embeddings
+        student_embs = self.proj(out.embeddings)
 
         loss = self.distill_loss(student_embs, teacher_embs)
         self.log("val_distill_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
@@ -113,7 +115,8 @@ class LightningDistillModel(L.LightningModule):
         teacher_embs = teacher_embs.to(self.device, non_blocking=True)
 
         out = self.model(pixel_values=pixel_values, labels=None)
-        student_embs = out.embeddings
+        #student_embs = out.embeddings
+        student_embs = self.proj(out.embeddings)
 
         loss = self.distill_loss(student_embs, teacher_embs)
         self.log("test_distill_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
@@ -206,3 +209,4 @@ class LightningDistillModel(L.LightningModule):
 
             self.profiler.reset()
             self._flops_profiled = True
+

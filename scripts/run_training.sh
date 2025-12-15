@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=train_for_classification
+#SBATCH --job-name=train_distillation
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --partition=gpu               
@@ -13,8 +13,6 @@
 
 echo "JOB ID: $SLURM_JOBID"
 echo "Running on host: $(hostname)"
-echo "GPUs allocated:"
-nvidia-smi
 
 # -------------------------------------------------------
 # Load Sherlock modules
@@ -23,10 +21,36 @@ module purge
 module load python/3.12.1
 module load cuda/12.2   # You can pick the CUDA version that works with your PyTorch
 
+
+#$SCRATCH/venvs/cool_project/bin/python -m huggingface_hub.login
+
+source ~/.secrets/hf_token
+
+# make sure both names are set
+export HF_TOKEN="$HUGGINGFACE_HUB_TOKEN"
+export HUGGINGFACE_HUB_TOKEN="$HUGGINGFACE_HUB_TOKEN"
+
+# fail fast
+if [ -z "${HUGGINGFACE_HUB_TOKEN:-}" ]; then
+  echo "ERROR: HF token not set"
+  exit 1
+fi
+
 # -------------------------------------------------------
 # Activate your virtual environment
 # -------------------------------------------------------
-source ~/cool_project/venv/bin/activate
+#source ~/cool_project/venv/bin/activate
+
+# ---- venv in SCRATCH (no activate) ----
+VENV=/scratch/users/ksa828/venvs/cool_project
+PY=$VENV/bin/python
+
+if [ ! -x "$PY" ]; then
+  echo "ERROR: venv python not found/executable at $PY"
+  echo "Did you create it with: python -m venv $VENV ?"
+  exit 1
+fi
+
 
 export HF_HOME=/scratch/users/ksa828/hf_cache
 export TRANSFORMERS_CACHE=$HF_HOME
@@ -52,9 +76,17 @@ export DATA_ROOT=/scratch/users/ksa828/data
 # -------------------------------------------------------
 # Run the training
 # -------------------------------------------------------
-python -m cool_project \
-    --function training \
-    --config scripts/config_training.json
+#python -m cool_project \
+   # --function distillation \
+   # --config scripts/config_distillation.json
+
+echo "DATA_ROOT=$DATA_ROOT"
+env | grep DATA_ROOT
+
+# ---- Run using venv python ----
+"$PY" -m cool_project \
+    --function extract_embeddings \
+    --config scripts/config_extract_embeddings.json
 
 echo "Training finished!"
 
