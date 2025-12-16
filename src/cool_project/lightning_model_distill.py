@@ -121,9 +121,28 @@ class LightningDistillModel(L.LightningModule):
         loss = self.distill_loss(student_embs, teacher_embs)
         self.log("test_distill_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
         return loss
+    
+    def on_train_start(self):
+        # store initial value of one backbone weight
+        for name, p in self.model.backbone.named_parameters():
+            if p.requires_grad:
+                self._probe_name = name
+                self._probe_init = p.detach().clone()
+                self.print(f"[WEIGHT PROBE] tracking {name}")
+                break
+
 
     def on_train_epoch_end(self):
         self._log_memory("train")
+
+        # compare at end of epoch 0
+        if self.current_epoch == 0 and hasattr(self, "_probe_init"):
+            for name, p in self.model.backbone.named_parameters():
+                if name == self._probe_name:
+                    delta = (p.detach() - self._probe_init).abs().mean().item()
+                    self.print(f"[WEIGHT CHECK] {name}: mean_abs_delta={delta}")
+                    break
+        
 
     def on_validation_epoch_end(self):
         self._log_memory("val")
@@ -137,8 +156,30 @@ class LightningDistillModel(L.LightningModule):
             lr=self.lr,
             weight_decay=self.weight_decay,
         )
+    
+    def on_after_backward(self):
+        if self.global_step == 0:
+            for name, p in self.model.backbone.named_parameters():
+                if p.requires_grad:
+                    self.print(
+                        f"[GRAD CHECK] {name}: grad_is_None={p.grad is None} "
+                        f"grad_norm={(p.grad.norm().item() if p.grad is not None else None)}"
+                    )
+                    break
+
 
     # ---------------------- FLOPs profiling ----------------------
+
+    class _EmbedOnly(torch.nn.Module):
+        def __init__(self, model: torch.nn.Module):
+            super().__init__()
+            self.model = model
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            out = self.model(pixel_values=x, labels=None, return_dict=True)
+            return out.embeddings
+
+
     def on_fit_start(self):
         if not self.profile_flops:
             return
@@ -157,26 +198,33 @@ class LightningDistillModel(L.LightningModule):
         else:
             self.profiler = FlopsProfiler(self.model)
 
+
     def on_train_batch_start(self, batch, batch_idx):
         if not self.profile_flops or self._flops_profiled:
             return
         if batch_idx != self.flops_batch:
             return
 
-        # If DeepSpeed profiler is available, use it
+        # DeepSpeed profiler path
         if self.profiler is not None:
             self.profiler.start_profile()
             self._batch_profile_start_time = time.time()
             return
 
         # ---------- fvcore fallback ----------
-        # IMPORTANT: don't unpack the batch; distill batch != supervised batch
         pixel_values = batch[0].to(self.device, non_blocking=True)
 
-        self.model.eval()
-        with torch.no_grad():
-            flops_analysis = FlopCountAnalysis(self.model, pixel_values)
-            total_flops = flops_analysis.total()
+        embed_model = self._EmbedOnly(self.model).to(self.device)
+
+        was_training = self.model.training
+        try:
+            self.model.eval()
+            with torch.no_grad():
+                flops_analysis = FlopCountAnalysis(embed_model, pixel_values)
+                total_flops = flops_analysis.total()
+        finally:
+            if was_training:
+                self.model.train()
 
         gflops = total_flops / 1e9
         self.log("flops_g", gflops, prog_bar=False, on_step=False, on_epoch=True)
@@ -191,22 +239,23 @@ class LightningDistillModel(L.LightningModule):
         self.print(f"[LightningDistillModel] Saved fvcore FLOPs info to {flops_path}")
         self._flops_profiled = True
 
+
     def on_train_batch_end(self, outputs, batch, batch_idx):
         if not self.profile_flops or self.profiler is None or self._flops_profiled:
             return
+        if batch_idx != self.flops_batch:
+            return
 
-        if batch_idx == self.flops_batch:
-            self.profiler.end_profile()
+        self.profiler.end_profile()
 
-            flops_path = self.output_dir / "flops.log"
-            self.profiler.print_model_profile(
-                profile_step=batch_idx,
-                module_depth=2,
-                top_modules=3,
-                detailed=True,
-                output_file=str(flops_path),
-            )
+        flops_path = self.output_dir / "flops.log"
+        self.profiler.print_model_profile(
+            profile_step=batch_idx,
+            module_depth=2,
+            top_modules=3,
+            detailed=True,
+            output_file=str(flops_path),
+        )
 
-            self.profiler.reset()
-            self._flops_profiled = True
-
+        self.profiler.reset()
+        self._flops_profiled = True

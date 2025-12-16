@@ -40,24 +40,22 @@ class TimmDinoBackbone(nn.Module):
             for p in self.model.parameters():
                 p.requires_grad = False
 
-    @torch.no_grad()
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+    
         feats = self.model.forward_features(x)
 
-        # dict output
         if isinstance(feats, dict):
-            if "gap" in feats and feats["gap"] is not None:
-                out = feats["gap"]                         # [B, D]
-            elif "x" in feats and feats["x"] is not None:
-                t = feats["x"]
-                if t.ndim == 3:                            # [B, N, D]
-                    out = t[:, 0] if self.pooling == "cls" else t.mean(dim=1)
-                elif t.ndim == 4:                          # [B, C, H, W]
-                    out = t.mean(dim=(2, 3))
-                else:
-                    raise ValueError(f"Unexpected feats['x'] shape: {t.shape}")
-            else:
+            if feats.get("gap", None) is not None:
+                return feats["gap"]
+            t = feats.get("x", None)
+            if t is None:
                 raise ValueError(f"Unknown feature dict keys: {feats.keys()}")
+            feats = t
 
-        # If it's just a tensor, assume already pooled (B, D)
-        return feats
+        # feats is now a tensor
+        if feats.ndim == 3:          # [B, N, D]
+            return feats[:, 0] if self.pooling == "cls" else feats.mean(dim=1)
+        if feats.ndim == 4:          # [B, C, H, W]
+            return feats.mean(dim=(2, 3))
+        return feats                 # [B, D]
+

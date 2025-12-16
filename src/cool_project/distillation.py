@@ -90,7 +90,9 @@ def run_distillation(config_path: str):
     dataset_root = Path(dataset_name)
     out_dir = Path(cfg.get("output_dir", "runs"))
     exp_root = out_dir / dataset_root / exp_name
-    seed_dir = exp_root / f"seed_{seed}"
+    job_id = os.environ.get("SLURM_JOB_ID", "local")
+    seed_dir = exp_root / f"seed_{seed}" / f"job_{job_id}"
+    #seed_dir = exp_root / f"seed_{seed}"
     seed_dir.mkdir(parents=True, exist_ok=True)
 
     setup_logging(seed_dir)
