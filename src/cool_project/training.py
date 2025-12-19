@@ -34,8 +34,6 @@ print("HF default cache path:", default_cache_path)
 print("HF_HOME:", os.getenv("HF_HOME"))
 print("TRANSFORMERS_CACHE:", os.getenv("TRANSFORMERS_CACHE"))
 
-
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -130,7 +128,7 @@ def build_training_experiment(config_path: str):
     logger.info(f"Domain = {domain}")
 
     # Map domain 
-    dataset_name = DOMAIN_DATASET_MAP.get(domain)
+    dataset_name = data_cfg.get("dataset_name") or DOMAIN_DATASET_MAP.get(domain)
     if dataset_name is None:
         raise ValueError(
             f"Unknown domain '{domain}'. Please add it to DOMAIN_DATASET_MAP."
@@ -141,8 +139,11 @@ def build_training_experiment(config_path: str):
     # Final directory for this run:
     #   <DATASET_NAME>/<experiment_name>/seed_<seed>/
     dataset_root = Path(dataset_name)
-    exp_root = dataset_root / exp_name
-    seed_dir = exp_root / f"seed_{seed}"
+    out_dir = Path(cfg.get("output_dir", "runs"))
+    exp_root = out_dir / dataset_root / exp_name
+    job_id = os.environ.get("SLURM_JOB_ID", "local")
+    seed_dir = exp_root / f"seed_{seed}" / f"job_{job_id}"
+    #seed_dir = exp_root / f"seed_{seed}"
     seed_dir.mkdir(parents=True, exist_ok=True)
 
     setup_logging(seed_dir)  # now logger writes to train.log in seed_dir
@@ -152,7 +153,7 @@ def build_training_experiment(config_path: str):
     # Create domain loaders
     loaders = create_domain_loaders(
         domain=domain,
-        dataset_name=data_cfg.get("dataset_name"),
+        dataset_name=dataset_name,
         resolution=data_cfg["resolution"],
         batch_size=data_cfg.get("batch_size", 32),
         num_workers=data_cfg.get("num_workers", 4),
@@ -174,125 +175,19 @@ def build_training_experiment(config_path: str):
         logger.info(f"#test batches per epoch:  {len(test_loader)}")
     except TypeError:
         logger.warning("One of the dataloaders has no __len__ (infinite / iterable).")
-    
-
-    # ----------------------------------------------------
-    # 1b. If distillation is enabled, wrap *all* splits with DistillDataset
-    # ----------------------------------------------------
-    distill_on = cfg["train"].get("distill", False)
-
-    if distill_on:
-        logger.info(f"Distillation flag from config: {distill_on}")
-        teacher_cfg = cfg.get("teacher", {})
-        emb_root = teacher_cfg.get("embeddings_path", None)
-
-        if emb_root is None:
-            raise ValueError(
-                "distill=True but no teacher.embeddings_path provided in config."
-            )
-
-        # Collect base datasets for each split
-        base_datasets = {}
-        if train_loader is not None:
-            base_datasets["train"] = train_loader.dataset
-        if val_loader is not None:
-            base_datasets["val"] = val_loader.dataset
-        if test_loader is not None:
-            base_datasets["test"] = test_loader.dataset
-
-        # Build a temporary student model just to query embedding dim D
-        student_model = build_model_from_config(cfg)
-        try:
-            D = student_model.vit.config.hidden_size
-        except AttributeError:
-            D = student_model.backbone.config.hidden_size
-
-        teacher_embs_by_split = {}
-
-        for split_name, base_ds in base_datasets.items():
-            N = len(base_ds)
-
-            # Derive a path per split, e.g. "path/to/emb.pt" -> "path/to/emb_train.pt" etc.
-            if emb_root.endswith(".pt"):
-                stem = emb_root[:-3]
-                emb_path = f"{stem}_{split_name}.pt"
-            else:
-                # if emb_root is a directory, save inside it
-                emb_path = str(Path(emb_root) / f"teacher_{split_name}.pt")
-
-            if not os.path.exists(emb_path):
-                logger.warning(f"Teacher embeddings file not found for {split_name}: {emb_path}")
-                logger.warning(f"Creating RANDOM teacher embeddings for {split_name} (debug).")
-                teacher_embs = torch.randn(N, D)
-                torch.save(teacher_embs, emb_path)
-                logger.warning(f"Saved random teacher embeddings to: {emb_path}")
-                logger.warning(f"Shape: {teacher_embs.shape}")
-            else:
-                logger.info(f"Loading teacher embeddings for {split_name} from: {emb_path}")
-                teacher_embs = torch.load(emb_path)
-
-            if teacher_embs.ndim != 2:
-                raise ValueError(
-                    f"[{split_name}] Expected teacher_embs to have shape [N, D], "
-                    f"but got {teacher_embs.shape}. Please regenerate teacher embeddings."
-                )
-
-            if teacher_embs.shape[0] != N:
-                raise ValueError(
-                    f"[{split_name}] Teacher embeddings length {teacher_embs.shape[0]} != "
-                    f"{split_name} dataset length {N}"
-                )
-
-            teacher_embs_by_split[split_name] = teacher_embs
-
-        # Now wrap each split with DistillDataset -> (image, teacher_emb)
-        def make_loader(base_ds, teacher_embs, shuffle):
-            return DataLoader(
-                DistillDataset(base_ds, teacher_embs),
-                batch_size=data_cfg.get("batch_size", 32),
-                num_workers=data_cfg.get("num_workers", 4),
-                shuffle=shuffle,
-                pin_memory=True,
-            )
-
-        if "train" in base_datasets:
-            train_loader = make_loader(base_datasets["train"], teacher_embs_by_split["train"], shuffle=True)
-            loaders["train"] = train_loader
-            logger.info("Distillation mode: train_loader now returns (image, teacher_emb).")
-
-        if "val" in base_datasets:
-            val_loader = make_loader(base_datasets["val"], teacher_embs_by_split["val"], shuffle=False)
-            loaders["val"] = val_loader
-            logger.info("Distillation mode: val_loader now returns (image, teacher_emb).")
-
-        if "test" in base_datasets:
-            test_loader = make_loader(base_datasets["test"], teacher_embs_by_split["test"], shuffle=False)
-            loaders["test"] = test_loader
-            logger.info("Distillation mode: test_loader now returns (image, teacher_emb).")
 
     # --- Inspect first batch shapes for sanity ---
     first_batch = next(iter(train_loader))
 
-    if distill_on:
-        pixel_values, teacher_embs = first_batch
-        logger.info(f"First train batch pixel_values.shape = {pixel_values.shape}")
-        logger.info(f"First train batch teacher_embs.shape = {teacher_embs.shape}")
-        logger.info(
-            f"pixel_values dtype = {pixel_values.dtype}, device = {pixel_values.device}"
-        )
-        logger.info(
-            f"teacher_embs dtype = {teacher_embs.dtype}, device = {teacher_embs.device}"
-        )
-    else:
-        pixel_values, labels = first_batch
-        logger.info(f"First train batch pixel_values.shape = {pixel_values.shape}")
-        logger.info(f"First train batch labels.shape       = {labels.shape}")
-        logger.info(
-            f"pixel_values dtype = {pixel_values.dtype}, device = {pixel_values.device}"
-        )
-        logger.info(
-            f"labels dtype       = {labels.dtype}, device = {labels.device}"
-        )
+    pixel_values, labels, image_ids = first_batch
+    logger.info(f"First train batch pixel_values.shape = {pixel_values.shape}")
+    logger.info(f"First train batch labels.shape       = {labels.shape}")
+    logger.info(
+        f"pixel_values dtype = {pixel_values.dtype}, device = {pixel_values.device}"
+    )
+    logger.info(
+        f"labels dtype       = {labels.dtype}, device = {labels.device}"
+    )
 
 
     base_train_ds = getattr(train_loader.dataset, "dataset", train_loader.dataset)
@@ -368,22 +263,24 @@ def build_training_experiment(config_path: str):
     # ----------------------------------------------------
     # Start from train config
     exp_cfg = cfg["train"].copy()
+    exp_cfg["class_weights"] = cfg.get("class_weights", None)  # optional if you use it
 
     #task = exp_cfg.get("task", "single_label_classification").lower()
     exp_cfg["task"] =  train_task
+    exp_cfg["loss_type"] = cfg["model"].get("loss_type", "auto")
     exp_cfg["num_classes"] = num_classes_cfg
     exp_cfg["experiment_name"] = exp_name
     exp_cfg["output_dir"] = str(seed_dir)
    
 
-    logger.info(f"Lightning task         = {task}")
+    logger.info(f"Lightning task         = {train_task}")
     logger.info(f"Lightning output_dir   = {seed_dir}")
     logger.info("Lightning experiment_name set to empty string for flat structure.")
 
+    #check that, we removed didtillation option
     lit_model = LightningModel(
         model=model,
         cfg=exp_cfg,
-        distill_on=distill_on,
     )
 
     # ----------------------------------------------------
@@ -418,6 +315,7 @@ def build_training_experiment(config_path: str):
                 monitor="val_loss",
                 patience=exp_cfg.get("early_stopping_patience", 5),
                 mode="min",
+                verbose=True,
             )
         )
 

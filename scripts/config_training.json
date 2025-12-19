@@ -1,49 +1,47 @@
 {
-  "experiment_name": "isic_vit_binary_224",
+  "experiment_name": "isic_tiny_vit_binary_classification_224",
   "output_dir": "runs",
 
   "task": "single_label_classification",
 
-  "teacher": {
-    "embeddings_path": "teacher_embs_random.pt"
-  },
-
   "data": {
     "domain": "dermatology",
+    "dataset_name": "ISIC2017",
     "resolution": 224,
     "batch_size": 32,
     "num_workers": 4,
-    "balanced_train": true,
+    "balanced_train": false,
     "val_split": 0.1
   },
 
-  "class_weights": null,
+  "class_weights": [0.573, 3.937],
 
   "model": {
+    "type": "vit",
     "backbone": {
-      "hf_model_name": "google/vit-base-patch16-224",
-      "pooling": "cls",
+      "type": "timm",
+      "model_name": "tiny_vit_21m_224.in1k",
+      "pooling": "mean",
       "num_layers_to_use": null,
-      "freeze_backbone": false
+      "pretrained_ckpt":"/.../cool_project/runs/ISIC2017/isic_distillation_vit_binary_224/seed_42/job_11905923/checkpoints/best.ckpt", 
+      "freeze_backbone": true,
+      "img_size": 224
     },
     "head": {
       "type": "linear",
-      "output_dim": 9,
+      "output_dim": 2,
       "output_activation": null
     },
     "loss_type": "ce"
   },
 
   "train": {
-    "distill": false,
-    "lamda_feat":1.0,
-    "lamda_cos":1.0,
-    "lr": 1e-4,
-    "weight_decay": 0.0,
+    "lr": 3e-4,
+    "weight_decay": 1e-4,
     "dropout_rate": 0.1, 
-    "max_epochs": 2,
-    "early_stopping_patience": 5,
-    "top_k": 5,
+    "max_epochs": 50,
+    "early_stopping_patience": 15,
+    "top_k": 1,
     "seed": 42, 
     "profile_flops": true,
     "flops_batch": 10

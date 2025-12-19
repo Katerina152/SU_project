@@ -430,6 +430,12 @@ def load_dataset(
     csv_path = os.path.join(dataset_dir, "labels.csv")
     images_root = os.path.join(dataset_dir, "images")
 
+    print(f"[load_dataset] DATA_ROOT    = {DATA_ROOT}")
+    print(f"[load_dataset] dataset_name = {dataset_name}")
+    print(f"[load_dataset] split        = {split}")
+    print(f"[load_dataset] csv_path     = {csv_path}")
+    print(f"[load_dataset] images_root  = {images_root}")
+
     if not os.path.exists(csv_path):
         raise FileNotFoundError(
             "CSV file not found at '{}'. "
@@ -487,7 +493,8 @@ def compute_class_weights(dataset):
     all_labels = []
 
     for i in range(len(dataset)):
-        _, y = dataset[i]
+        item = dataset[i]
+        y = item[1]  # assume (image, label, ...)
 
         # If y is a Tensor one-hot vector, convert to class index
         if isinstance(y, torch.Tensor) and y.ndim > 0:

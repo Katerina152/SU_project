@@ -11,9 +11,9 @@ def main():
 
     if args.function == "training":
         build_training_experiment(args.config)
-    if args.function == "extract_embeddings":
+    elif args.function == "extract_embeddings":
         build_embedding_experiment(args.config)
-    if args.function == "distillation":
+    elif args.function == "distillation":
         run_distillation(args.config)
     else:
         raise NotImplementedError(f"Function '{args.function}' not supported")

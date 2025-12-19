@@ -72,6 +72,16 @@ class VisionTransformerWithHead(nn.Module):
 
         else:
             raise ValueError(f"Unknown backbone type: {self.backbone_type}")
+        
+        # ✅ OPTIONAL: load distilled/pretrained backbone from a .ckpt
+        ckpt_path = backbone_cfg.get("pretrained_ckpt", None)
+        if isinstance(ckpt_path, str) and ckpt_path.endswith(".ckpt"):
+            print(f"[VisionTransformerWithHead] pretrained_ckpt detected: {ckpt_path}")
+            self._load_backbone_from_ckpt(ckpt_path)
+        else:
+            print("[VisionTransformerWithHead] No pretrained_ckpt provided, using default weights")
+
+
 
         if backbone_cfg.get("freeze_backbone", False):
             self.freeze_backbone()
@@ -85,6 +95,38 @@ class VisionTransformerWithHead(nn.Module):
         else:
             self.head = nn.Identity()
             self.num_classes = None
+    
+    def _load_backbone_from_ckpt(self, ckpt_path: str):
+        """
+        Loads ONLY backbone weights from a Lightning-style checkpoint or raw state_dict.
+        Common prefixes supported:
+          - model.backbone.*
+          - backbone.*
+          - student.backbone.*
+        """
+        ckpt = torch.load(ckpt_path, map_location="cpu")
+        state = ckpt.get("state_dict", ckpt)
+
+        prefixes = ("model.backbone.", "backbone.", "student.backbone.")
+        backbone_state = {}
+
+        for k, v in state.items():
+            for p in prefixes:
+                if k.startswith(p):
+                    backbone_state[k[len(p):]] = v
+                    break
+
+        if not backbone_state:
+            raise RuntimeError(
+                f"[VisionTransformerWithHead] No backbone keys found in checkpoint: {ckpt_path}"
+            )
+
+        missing, unexpected = self.backbone.load_state_dict(backbone_state, strict=False)
+
+        print(f"[VisionTransformerWithHead] Loaded backbone from {ckpt_path}")
+        print(f"  missing keys: {len(missing)}")
+        print(f"  unexpected keys: {len(unexpected)}")
+
 
     def freeze_backbone(self):
         for p in self.backbone.parameters():
@@ -105,9 +147,9 @@ class VisionTransformerWithHead(nn.Module):
     ) -> Union[VisionOutput, Tuple]:
 
         # Debug prints (safe)
-        print("pixel_values:", pixel_values.shape)
-        if self.backbone_type == "hf":
-            print("hf expected:", getattr(self.backbone.config, "image_size", None))
+        #print("pixel_values:", pixel_values.shape)
+        #if self.backbone_type == "hf":
+            #print("hf expected:", getattr(self.backbone.config, "image_size", None))
 
         if self.backbone_type == "hf":
             kwargs = dict(

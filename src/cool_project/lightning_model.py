@@ -14,6 +14,7 @@ from .metrics import build_metrics_for_task
 import psutil
 from fvcore.nn import FlopCountAnalysis
 from cool_project.backbones_heads.custom_loss import EmbeddingDistillationLoss
+import torch.nn as nn
 
 
 try:
@@ -71,7 +72,8 @@ class LightningModel(L.LightningModule):
             # segmentation, multilabel, regression usually don’t use top-k
             self.top_k = None
 
-
+        self.loss_type = getattr(self.model, "loss_type", cfg.get("loss_type", "auto"))
+        self.class_weights = getattr(self.model, "class_weights", cfg.get("class_weights", None))
 
         # Optimizer hyperparameters
         self.lr = cfg.get("lr", 1e-4)
@@ -87,19 +89,13 @@ class LightningModel(L.LightningModule):
         num_classes = getattr(self.model, "num_classes", cfg.get("num_classes", None))
         self.num_classes = num_classes
 
-        if self.distill_on:
-            # No label-based metrics in pure distillation mode
-            self.train_metrics = {}
-            self.val_metrics = {}
-            self.test_metrics = {}
-        else:
-            self.train_metrics = build_metrics_for_task(
-                task=self.task,
-                num_classes=num_classes,
-                top_k=self.top_k,
-            )
-            self.val_metrics = {k: m.clone() for k, m in self.train_metrics.items()}
-            self.test_metrics = {k: m.clone() for k, m in self.train_metrics.items()}
+        self.train_metrics = build_metrics_for_task(
+            task=self.task,
+            num_classes=num_classes,
+            top_k=self.top_k,
+        )
+        self.val_metrics = {k: m.clone() for k, m in self.train_metrics.items()}
+        self.test_metrics = {k: m.clone() for k, m in self.train_metrics.items()}
 
     
     def _log_memory(self, tag: str):
@@ -112,6 +108,73 @@ class LightningModel(L.LightningModule):
             self.log(f"{tag}_gpu_memory_gb", gpu_mem, prog_bar=False, on_step=False, on_epoch=True)
             # optional: reset peak stats so next epoch is fresh
             torch.cuda.reset_peak_memory_stats()
+    
+    def _compute_loss(self, logits, labels):
+        if labels is None:
+            return None
+
+        # --- segmentation branch ---
+        if self.task == "segmentation":
+            weight = self.class_weights.to(logits.device) if getattr(self, "class_weights", None) is not None else None
+            loss_fn = nn.CrossEntropyLoss(weight=weight)
+
+            if logits.ndim == 4 and labels.ndim == 3 and logits.shape[2:] != labels.shape[-2:]:
+                logits = F.interpolate(logits, size=labels.shape[-2:], mode="bilinear", align_corners=False)
+
+            return loss_fn(logits, labels)
+
+        # --- classification/regression ---
+        loss_type = self.loss_type
+        if loss_type == "auto":
+            if self.task == "regression":
+                loss_type = "mse"
+            elif self.task == "single_label_classification":
+                loss_type = "ce"
+            elif self.task == "multi_label_classification":
+                loss_type = "bce"
+            else:
+                raise ValueError(f"Unknown task: {self.task}")
+
+        if loss_type == "mse":
+            return nn.MSELoss()(logits, labels)
+
+        if loss_type == "ce":
+            weight = self.class_weights.to(logits.device) if getattr(self, "class_weights", None) is not None else None
+            loss_fn = nn.CrossEntropyLoss(weight=weight)
+            return loss_fn(logits.view(-1, logits.size(-1)), labels.view(-1))
+
+        if loss_type == "bce":
+            return nn.BCEWithLogitsLoss()(logits, labels)
+
+        # If you truly don’t want distillation/custom here:
+        if loss_type == "custom":
+            raise ValueError("loss_type='custom' is not supported in this logits-only LightningModel.")
+
+        raise ValueError(f"Unknown loss_type: {self.loss_type}")
+    
+    def _update_classification_metrics(self, metric_dict, logits, labels):
+        preds = torch.argmax(logits, dim=1)  # [B]
+        C = logits.size(-1)
+
+        probs = None
+        probs_pos = None
+        if C == 2:
+            probs_pos = torch.softmax(logits, dim=1)[:, 1]  # [B]
+        else:
+            probs = torch.softmax(logits, dim=1)            # [B, C]
+
+        for name, metric in metric_dict.items():
+            n = name.lower()
+            if n == "auroc":
+                if C == 2:
+                    metric.update(probs_pos, labels)        # [B]
+                else:
+                    metric.update(probs, labels)            # [B, C]
+            elif n.startswith("top"):                       # e.g. "top5_accuracy"
+                metric.update(logits, labels)               # [B, C]
+            else:
+                metric.update(preds, labels)                # [B]
+
 
     # ----------------------
     # Forward
@@ -131,38 +194,21 @@ class LightningModel(L.LightningModule):
     # ----------------------
     def training_step(self, batch, batch_idx):
 
-        if self.distill_on:
-            pixel_values, teacher_embs = batch
-            print(f"[DISTILL] batch_idx={batch_idx}, pixel_values.shape={pixel_values.shape}, teacher_embs.shape={teacher_embs.shape}")
-            pixel_values = pixel_values.to(self.device)
-            teacher_embs = teacher_embs.to(self.device)
-
-            out = self.model(pixel_values=pixel_values, labels=None)
-            student_embs = out.embeddings
-            print(f"[DISTILL] student_embs.shape={student_embs.shape}")
-
-
-            loss = self.distill_loss(student_embs, teacher_embs)
-            print(f"[DISTILL] loss={loss.item():.4f}")
-            self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-            return loss
-
-
-        pixel_values, labels = batch
+        pixel_values, labels, image_ids = batch
         pixel_values = pixel_values.to(self.device)
         labels = labels.to(self.device)
 
-        out = self(pixel_values, labels=labels)
-        loss = out.loss
+        #out = self(pixel_values, labels=labels)
+        out = self(pixel_values)
+        loss = self._compute_loss(out.logits, labels)
         logits = out.logits
 
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
         
         # --- update torchmetrics ---
         if self.task == "single_label_classification":
-            for name, metric in self.train_metrics.items():
-                # For MulticlassAccuracy / top-k, passing logits is fine
-                metric.update(logits, labels)
+            self._update_classification_metrics(self.train_metrics, logits, labels)
+
 
         elif self.task in ["multi_label_classification", "multi_label", "multilabel"]:
             probs = torch.sigmoid(logits)
@@ -194,10 +240,6 @@ class LightningModel(L.LightningModule):
         return loss
 
     def on_train_epoch_end(self):
-        if self.distill_on:
-            # In pure distillation, just log memory (or distill-specific scalars if you want)
-            self._log_memory("train")
-            return
 
         for name, metric in self.train_metrics.items():
             value = metric.compute()
@@ -211,37 +253,22 @@ class LightningModel(L.LightningModule):
     # Validation Step
     # ----------------------
     def validation_step(self, batch, batch_idx):
-        if self.distill_on:
-            pixel_values, teacher_embs = batch
-            pixel_values = pixel_values.to(self.device)
-            teacher_embs = teacher_embs.to(self.device)
-
-            out = self.model(pixel_values=pixel_values, labels=None)
-            student_embs = out.embeddings
-
-            loss = self.distill_loss(student_embs, teacher_embs)
-            self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-            return loss
-
-
-
-
-        pixel_values, labels = batch
+        
+        pixel_values, labels, image_ids = batch
         pixel_values = pixel_values.to(self.device)
         labels = labels.to(self.device)
 
-        out = self(pixel_values, labels=labels)
-        loss = out.loss
+        #out = self(pixel_values, labels=labels)
+        out = self(pixel_values)
+        loss = self._compute_loss(out.logits, labels)
         logits = out.logits
 
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
         # --- update torchmetrics ---
         if self.task == "single_label_classification":
-            for name, metric in self.val_metrics.items():
-                # For MulticlassAccuracy / top-k
-                metric.update(logits, labels)
-
+            self._update_classification_metrics(self.val_metrics, logits, labels)
+        
         elif self.task in ["multi_label_classification", "multi_label", "multilabel"]:
             probs = torch.sigmoid(logits)
             for name, metric in self.val_metrics.items():
@@ -270,9 +297,6 @@ class LightningModel(L.LightningModule):
         return loss
     
     def on_val_epoch_end(self):
-        if self.distill_on:
-            self._log_memory("eval")
-            return
 
         for name, metric in self.val_metrics.items():
             value = metric.compute()
@@ -288,33 +312,20 @@ class LightningModel(L.LightningModule):
     # ----------------------
     def test_step(self, batch, batch_idx):
 
-        if self.distill_on:
-            pixel_values, teacher_embs = batch
-            pixel_values = pixel_values.to(self.device)
-            teacher_embs = teacher_embs.to(self.device)
-
-            out = self.model(pixel_values=pixel_values, labels=None)
-            student_embs = out.embeddings
-
-            loss = self.distill_loss(student_embs, teacher_embs)
-            self.log("test_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-            return loss
-
-        pixel_values, labels = batch
+        pixel_values, labels, image_ids = batch
         pixel_values = pixel_values.to(self.device)
         labels = labels.to(self.device)
 
-        out = self(pixel_values, labels=labels)
-        loss = out.loss
+        #out = self(pixel_values, labels=labels)
+        out = self(pixel_values)
+        loss = self._compute_loss(out.logits, labels)
         logits = out.logits
 
         self.log("test_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
         # --- update torchmetrics ---
         if self.task == "single_label_classification":
-            for name, metric in self.test_metrics.items():
-                # For MulticlassAccuracy / top-k
-                metric.update(logits, labels)
+            self._update_classification_metrics(self.test_metrics, logits, labels)
 
         elif self.task in ["multi_label_classification", "multi_label", "multilabel"]:
             probs = torch.sigmoid(logits)
@@ -345,10 +356,6 @@ class LightningModel(L.LightningModule):
         return loss
     
     def on_test_epoch_end(self):
-        if self.distill_on:
-            self._log_memory("test")
-            return
-
         for name, metric in self.test_metrics.items():
             value = metric.compute()
             self.log(f"test_{name}", value, prog_bar=(name == "accuracy"), on_epoch=True)
@@ -366,7 +373,7 @@ class LightningModel(L.LightningModule):
 
         with torch.no_grad():
             for batch in dataloader:
-                pixel_values, _ = batch
+                pixel_values = batch[0]
                 pixel_values = pixel_values.to(self.device)
 
                 out = self.model(pixel_values=pixel_values)
@@ -397,7 +404,21 @@ class LightningModel(L.LightningModule):
             for m in metric_dict.values():
                 m.to(device)
     
-    
+    class _EmbedOnly(torch.nn.Module):
+        """
+        Wrapper so fvcore calls the model with the correct signature
+        and excludes loss computation.
+        """
+        def __init__(self, model: torch.nn.Module):
+            super().__init__()
+            self.model = model
+
+        def forward(self, x: torch.Tensor):
+            out = self.model(pixel_values=x, labels=None, return_dict=True)
+            return out.embeddings
+
+
+#===== CHANGE FOR THE NEW OUTPUT ==== TO DO =====
     
     def on_fit_start(self):
         self._move_metrics_to_device()
@@ -425,29 +446,33 @@ class LightningModel(L.LightningModule):
         if not self.profile_flops or self._flops_profiled:
             return
 
-        # Only do anything on the selected batch
         if batch_idx != self.flops_batch:
             return
 
-        # If we have a DeepSpeed profiler, use it (your existing behavior)
+        # ---------------- DeepSpeed path ----------------
         if self.profiler is not None:
             self.profiler.start_profile()
             self._batch_profile_start_time = time.time()
             return
 
-        # ---------- fvcore fallback (no DeepSpeed) ----------
-        # batch = (pixel_values, labels)
-        pixel_values, labels = batch
-        pixel_values = pixel_values.to(self.device)
+        # ---------------- fvcore fallback ----------------
+        # batch = (pixel_values, labels, image_ids)
+        pixel_values = batch[0].to(self.device, non_blocking=True)
 
-        self.model.eval()
-        with torch.no_grad():
-            flops_analysis = FlopCountAnalysis(self.model, pixel_values)
-            total_flops = flops_analysis.total()
+        embed_model = self._EmbedOnly(self.model).to(self.device)
+
+        was_training = self.model.training
+        try:
+            self.model.eval()
+            with torch.no_grad():
+                flops = FlopCountAnalysis(embed_model, pixel_values)
+                total_flops = flops.total()
+        finally:
+            if was_training:
+                self.model.train()
 
         gflops = total_flops / 1e9
 
-        # Log into Lightning
         self.log(
             "flops_g",
             gflops,
@@ -456,18 +481,16 @@ class LightningModel(L.LightningModule):
             on_epoch=True,
         )
 
-        # Save to file in your output_dir
         flops_path = self.output_dir / "flops_fvcore.log"
         with open(flops_path, "w") as f:
             f.write(f"Batch index: {batch_idx}\n")
             f.write(f"Batch size: {pixel_values.shape[0]}\n")
-            f.write(f"Total FLOPs (this batch): {total_flops}\n")
-            f.write(f"GFLOPs (this batch): {gflops:.3f}\n")
+            f.write(f"Total FLOPs: {total_flops}\n")
+            f.write(f"GFLOPs: {gflops:.3f}\n")
 
-        print(f"[LightningModel] Saved fvcore FLOPs info to {flops_path}")
-
-        # Make sure we only do this once
+        print(f"[LightningModel] Saved fvcore FLOPs to {flops_path}")
         self._flops_profiled = True
+
 
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
