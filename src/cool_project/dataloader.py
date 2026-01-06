@@ -60,36 +60,7 @@ PROJECT_ROOT = os.path.dirname(SRC_ROOT)
 DATA_ROOT = os.environ.get("DATA_ROOT", os.path.join(PROJECT_ROOT, "data"))
 
 
-
 class GenericCSVDataset(Dataset):
-    """
-    Generic dataset for:
-      - a CSV with one 'image' column + numeric label columns (one-hot)
-      - image files stored under a root folder (possibly in subfolders)
-
-    Expected layout for a dataset called <dataset_name>:
-
-        <repo>/data/<dataset_name>/<split>/labels.csv
-        <repo>/data/<dataset_name>/<split>/images/.../*.jpg
-
-    Example for ISIC2019:
-
-        repo/
-          src/
-          data/
-            ISIC2019/
-              train/
-                labels.csv
-                images/
-                  ISIC_2019_Training_Input/
-                    ISIC_0000000.jpg
-                    ...
-              test/
-                labels.csv
-                images/
-                  ...
-    """
-
     def __init__(
         self,
         csv_path: str,
@@ -99,124 +70,132 @@ class GenericCSVDataset(Dataset):
         validate_labels: bool = True,
         img_ext: str = ".jpg",
     ) -> None:
-        """
-        Args:
-            csv_path: Path to CSV file with 'image' column and label columns.
-            images_root: Root directory under which images are stored.
-                         Images may be inside nested subfolders.
-            transform: Optional torchvision-style transform for images.
-            return_one_hot:
-                - False -> returns (image, class_index) for CrossEntropyLoss.
-                - True  -> returns (image, one_hot_vector) e.g. for BCEWithLogitsLoss.
-            validate_labels: If True, ensure labels are only 0/1 after type conversion.
-            img_ext: Image extension to look for (default ".jpg").
-        """
+
         self.csv_path = csv_path
         self.images_root = images_root
         self.transform = transform
         self.return_one_hot = return_one_hot
         self.img_ext = img_ext.lower()
+        self._printed_getitem_debug = False
+
 
         # -------- Load CSV --------
         df = pd.read_csv(csv_path)
         print(f"Loaded {len(df)} entries from '{csv_path}'.")
 
-        # -------- Basic sanity: must have an 'image' column --------
         if "image" not in df.columns:
-            raise ValueError(f"CSV '{csv_path}' must contain an 'image' column.")
+            raise ValueError("CSV must contain an 'image' column.")
 
-        # -------- Label columns = all columns except 'image' --------
+        # -------- Label columns --------
         label_cols = [c for c in df.columns if c != "image"]
         if not label_cols:
-            raise ValueError(
-                f"No label columns found in '{csv_path}'. "
-                "Expected one 'image' column and at least one label column."
-            )
+            raise ValueError("No label columns found.")
 
-        # -------- Convert label columns to numeric --------
+        # -------- Convert labels to numeric --------
         for c in label_cols:
-            df[c] = pd.to_numeric(df[c], errors="raise")  # error if something is non-numeric
-
+            df[c] = pd.to_numeric(df[c], errors="raise")
         df[label_cols] = df[label_cols].astype(float)
 
-        # -------- Optional: validate that labels are only 0/1 --------
+        # -------- Optional validation --------
         if validate_labels:
             for col in label_cols:
-                unique_vals = set(df[col].unique())
-                if not unique_vals.issubset({0.0, 1.0}):
-                    raise ValueError(
-                        f"Column '{col}' in '{csv_path}' contains invalid values: {unique_vals}. "
-                        "Expected only 0 or 1 after conversion to float."
-                    )
+                if not set(df[col].unique()).issubset({0.0, 1.0}):
+                    raise ValueError(f"Invalid values in column '{col}'.")
 
-        # -------- Save metadata on the dataset --------
-        self.label_cols = label_cols            
-        self.class_names = label_cols
-        self.num_classes = len(label_cols)   
-        print(f"Detected {self.num_classes} classes: {self.class_names}")     
+        self.label_cols = list(label_cols)
 
-        # -------- Map image_id -> full path, scanning all subfolders --------
+        # -------- Detect implicit "other" --------
+        L = df[self.label_cols].to_numpy(dtype=np.float32)
+        row_sums = L.sum(axis=1)
+
+        self.has_implicit_other = (
+            ((L == 0.0) | (L == 1.0)).all() and   # binary labels
+            (row_sums <= 1).all() and             # single-label style
+            (row_sums == 0).any()                 # some all-zero rows
+        )
+
+        if self.has_implicit_other:
+            self.class_names = ["other"] + self.label_cols
+            self.num_classes = 1 + len(self.label_cols)
+        else:
+            self.class_names = self.label_cols
+            self.num_classes = len(self.label_cols)
+
+        print(f"Detected {self.num_classes} classes: {self.class_names}")
+
+        print("====== Dataset label interpretation ======")
+        print(f"Implicit 'other' enabled: {self.has_implicit_other}")
+        print(f"Label columns           : {self.label_cols}")
+        print(f"Class names             : {self.class_names}")
+        print(f"Number of classes       : {self.num_classes}")
+        print("==========================================")
+
+
+        # -------- Map image_id -> path --------
         id_to_path = {}
         for root, _, files in os.walk(images_root):
             for fname in files:
                 if fname.lower().endswith(self.img_ext):
-                    img_id = os.path.splitext(fname)[0]  # 'ISIC_0000000'
-                    full_path = os.path.join(root, fname)
-                    id_to_path[img_id] = full_path
-        
-        print(f"Found {len(id_to_path)} images under '{images_root}' with extension '{self.img_ext}'.")
-        
+                    img_id = os.path.splitext(fname)[0]
+                    id_to_path[img_id] = os.path.join(root, fname)
 
-        if len(id_to_path) == 0:
-            raise RuntimeError(
-                "No images with extension '{}' found under '{}'."
-                .format(self.img_ext, images_root)
-            )
+        if not id_to_path:
+            raise RuntimeError("No images found.")
 
-        # -------- Keep only rows whose image exists on disk --------
+        # -------- Filter missing images --------
         mask = df["image"].isin(id_to_path.keys())
-        if not mask.all():
-            missing = df.loc[~mask, "image"].tolist()
-            print(
-                "Warning: {} images listed in '{}' were not found under '{}'. "
-                "They will be skipped.".format(len(missing), csv_path, images_root)
-            )
-
         df = df[mask].reset_index(drop=True)
 
-        print(f"final dataset size after filtering missing images: {len(df)}.")
+        print(f"Final dataset size: {len(df)}")
 
         self.df = df
         self.id_to_path = id_to_path
 
-    def __len__(self) -> int:
+    def __len__(self):
         return len(self.df)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx):
         row = self.df.iloc[idx]
 
         # -------- Image --------
         image_id = row["image"]
-        image_path = self.id_to_path[image_id]
-
-        img = Image.open(image_path).convert("RGB")
-        if self.transform is not None:
+        img = Image.open(self.id_to_path[image_id]).convert("RGB")
+        if self.transform:
             img = self.transform(img)
 
         # -------- Label --------
-        # Ensure numeric labels as float32 (handles any lingering object dtype)
         label_array = row[self.label_cols].to_numpy(dtype=np.float32)
-        label_vector = torch.from_numpy(label_array)
 
+        # print once (only debug)
+        if self.has_implicit_other and not self._printed_getitem_debug:
+            print(f"[GenericCSVDataset] has_implicit_other={self.has_implicit_other}")
+            print(f"[GenericCSVDataset] label_cols={self.label_cols}")
+            self._printed_getitem_debug = True
 
-        if self.return_one_hot:
-            # multi-class one-hot / multi-label
-            label = label_vector
+        if self.has_implicit_other:
+            s = int(label_array.sum())
+            if s == 0:
+                y = 0  # other
+            elif s == 1:
+                y = 1 + int(label_array.argmax())  # melanoma->1, sk->2
+            else:
+                raise ValueError("Multiple positives in implicit-other dataset")
+
+            if self.return_one_hot:
+                label = torch.zeros(self.num_classes, dtype=torch.float32)
+                label[y] = 1.0
+            else:
+                label = int(y)
+
         else:
-            # single-label: index of max value
-            label = int(label_vector.argmax().item())
+            # no implicit-other
+            if self.return_one_hot:
+                label = torch.from_numpy(label_array).float()
+            else:
+                label = int(label_array.argmax())
 
         return img, label, image_id
+
 
 
 class DistillDataset(Dataset):
@@ -481,7 +460,7 @@ class Embedding_Dataset(Dataset):
 
 #DataLoaders and weighted samplers for class imbalance
 
-def compute_class_weights(dataset):
+def compute_class_weights(dataset): #ONLY FOR SINGLE LABEL DATASETS
     """
     Computes class_weights and sample_weights from a dataset that returns:
         (image, class_index)
@@ -506,14 +485,23 @@ def compute_class_weights(dataset):
 
     labels_tensor = torch.tensor(all_labels, dtype=torch.long)
 
-    num_classes = int(labels_tensor.max().item() + 1)
+    meta_ds = dataset.dataset if hasattr(dataset, "dataset") else dataset
+    num_classes = getattr(meta_ds, "num_classes", int(labels_tensor.max().item() + 1))
     class_counts = torch.bincount(labels_tensor, minlength=num_classes)
-    print(f"Class counts: {class_counts.tolist()}")
+
+    print(f"[compute_class_weights] num_classes={num_classes}")
+    print(f"[compute_class_weights] class_counts={class_counts.tolist()}")
 
     # Avoid division by zero (if some class exists in CSV but no images)
     class_counts[class_counts == 0] = 1
 
-    class_weights = 1.0 / class_counts.float()
+    class_counts_f = class_counts.float()
+    N = class_counts_f.sum()
+    K = float(num_classes)
+
+    class_weights = N / (K * class_counts_f)   # balanced weights
+    class_weights = class_weights / class_weights.mean()  # optional but recommended
+
     sample_weights = class_weights[labels_tensor]
 
     print(f"[compute_class_weights] class_weights={class_weights.tolist()}")
@@ -542,9 +530,11 @@ def create_image_dataloader(dataset, batch_size=32, num_workers=4, balanced=Fals
     Creates a DataLoader with optional class-balancing via WeightedRandomSampler.
     """
     if balanced:
+        print("[create_image_dataloader] balanced=True → using WeightedRandomSampler")
         sampler = make_balanced_sampler(dataset)
         shuffle = False  
     else:
+        print("[create_image_dataloader] balanced=False → no sampler, shuffle =", shuffle)
         sampler = None
         
     persistent = num_workers > 0

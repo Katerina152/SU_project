@@ -119,6 +119,9 @@ def run_distillation(config_path: str):
         balanced_train=data_cfg.get("balanced_train", False),
         val_split=data_cfg.get("val_split", 0.0),
         return_one_hot=False,
+        model_type=cfg["model"].get("type", "vit").lower(),
+        backbone_type=cfg["model"].get("backbone", {}).get("type", None),
+        model_name=cfg["model"].get("backbone", {}).get("model_name", None),
     )
 
     # Wrap datasets with teacher embeddings

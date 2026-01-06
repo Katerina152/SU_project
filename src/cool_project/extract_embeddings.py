@@ -89,6 +89,9 @@ def build_embedding_experiment(config_path: str):
         balanced_train=False,                 # no balancing for embeddings
         val_split=data_cfg.get("val_split", 0.0),
         return_one_hot=False,
+        model_type=cfg["model"].get("type", "vit").lower(),
+        backbone_type=cfg["model"].get("backbone", {}).get("type", None),
+        model_name=cfg["model"].get("backbone", {}).get("model_name", None),
     )
 
     train_loader = loaders.get("train")

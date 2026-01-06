@@ -33,7 +33,7 @@ class VisionTransformerWithHead(nn.Module):
         )
 
         # Decide which backbone type we’re using
-        self.backbone_type = backbone_cfg.get("type", "hf")   # "hf" or "timm"
+        self.backbone_type = backbone_cfg.get("type", "hf")  
         self.pooling = backbone_cfg.get("pooling", "cls")
         self.num_layers_to_use = backbone_cfg.get("num_layers_to_use", None)
 
@@ -41,7 +41,7 @@ class VisionTransformerWithHead(nn.Module):
         # 1) Backbone
         # -----------------------
         if self.backbone_type == "hf":
-            hf_model_name = backbone_cfg["model_name"]  # HF model id string
+            hf_model_name = backbone_cfg["model_name"]  
 
             self.backbone = ViTModel.from_pretrained(
                 hf_model_name,

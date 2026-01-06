@@ -1,11 +1,11 @@
 {
-  "experiment_name": "isic_distillation_vit_binary_224",
-  "output_dir": "runs",
+  "experiment_name": "isic_distillation_vit_224",
+  "output_dir": "runs_new",
 
   "task": "distillation",
 
   "teacher": {
-  "embeddings_dir": "/home/users/ksa828/cool_project/extracted_embeddings_512/ISIC2017/isic_dinov3_emb_512/seed_42/embeddings",
+  "embeddings_dir": "/home/users/ksa828/cool_project/extracted_embeddings_512_new/ISIC2017/isic_dinov3_emb_512_new/seed_42/embeddings",
   "embedding_dim": 384
   }, 
 

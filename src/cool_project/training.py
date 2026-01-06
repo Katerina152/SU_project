@@ -25,7 +25,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from cool_project.backbones_heads.models import build_model_from_config
 from cool_project.lightning_model import LightningModel
 from cool_project.data_domain import create_domain_loaders, DOMAIN_DATASET_MAP
-from cool_project.dataloader import is_multilabel_from_config
+from cool_project.dataloader import is_multilabel_from_config, compute_class_weights
 from cool_project.training_utils import build_trainer_from_env
 from transformers.utils import default_cache_path
 import os
@@ -160,7 +160,10 @@ def build_training_experiment(config_path: str):
         balanced_train=data_cfg.get("balanced_train", False),
         val_split=data_cfg.get("val_split", 0.0),
         return_one_hot=return_one_hot,
-    )
+        model_type=cfg["model"].get("type", "vit").lower(),
+        backbone_type=cfg["model"].get("backbone", {}).get("type", None),
+        model_name=cfg["model"].get("backbone", {}).get("model_name", None),
+        )
 
     
     train_loader = loaders["train"]
@@ -189,9 +192,39 @@ def build_training_experiment(config_path: str):
         f"labels dtype       = {labels.dtype}, device = {labels.device}"
     )
 
+    # The dataset the model actually trains on (may be a Subset)
+    train_ds = train_loader.dataset
 
-    base_train_ds = getattr(train_loader.dataset, "dataset", train_loader.dataset)
+    # Underlying dataset (for metadata + CSV inspection)
+    base_train_ds = train_ds.dataset if hasattr(train_ds, "dataset") else train_ds
+
     num_classes_data = getattr(base_train_ds, "num_classes", None)
+
+    # ---- Compute class weights on the TRAIN SPLIT ----
+    cw, _ = compute_class_weights(train_ds)  # <- IMPORTANT: use train_ds, not base_train_ds
+    cw = cw.float()
+
+    logger.info(f"[train] computed class_weights on train split (len={len(cw)}): {cw.tolist()}")
+
+    # ---- Inspect TRAIN-SPLIT class-index distribution ----
+    try:
+        from collections import Counter
+        counts = Counter()
+        for i in range(len(train_ds)):
+            y = train_ds[i][1]
+            if isinstance(y, torch.Tensor) and y.ndim > 0:
+                y = int(y.argmax().item())
+            else:
+                y = int(y)
+            counts[y] += 1
+        logger.info(f"Train-split class-index counts: {dict(counts)}")
+
+        if hasattr(base_train_ds, "class_names"):
+            logger.info(f"class_names: {base_train_ds.class_names}")
+    except Exception as e:
+        logger.warning(f"Could not compute train-split class distribution: {e}")
+
+
 
     cfg_head = cfg["model"].get("head", {})
     num_classes_cfg = cfg_head.get("output_dim")
@@ -263,7 +296,10 @@ def build_training_experiment(config_path: str):
     # ----------------------------------------------------
     # Start from train config
     exp_cfg = cfg["train"].copy()
-    exp_cfg["class_weights"] = cfg.get("class_weights", None)  # optional if you use it
+    #exp_cfg["class_weights"] = cfg.get("class_weights", None)  # optional if you use it
+    model.class_weights = cw
+    #exp_cfg["class_weights"] = cw  # tensor
+
 
     #task = exp_cfg.get("task", "single_label_classification").lower()
     exp_cfg["task"] =  train_task

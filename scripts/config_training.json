@@ -14,8 +14,6 @@
     "val_split": 0.1
   },
 
-  "class_weights": [0.573, 3.937],
-
   "model": {
     "type": "vit",
     "backbone": {
@@ -29,7 +27,7 @@
     },
     "head": {
       "type": "linear",
-      "output_dim": 2,
+      "output_dim": 9,
       "output_activation": null
     },
     "loss_type": "ce"

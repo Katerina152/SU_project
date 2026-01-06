@@ -74,6 +74,30 @@ class LightningModel(L.LightningModule):
 
         self.loss_type = getattr(self.model, "loss_type", cfg.get("loss_type", "auto"))
         self.class_weights = getattr(self.model, "class_weights", cfg.get("class_weights", None))
+        print("[LightningModel] class_weights:", None if self.class_weights is None else self.class_weights)
+
+        # ---- DEBUG: init sanity ----
+        print("[DEBUG:init] task =", self.task, "loss_type =", self.loss_type)
+        print("[DEBUG:init] num_classes =", getattr(self.model, "num_classes", None))
+        print("[DEBUG:init] cfg keys include class_weights?", "class_weights" in cfg)
+        print("[DEBUG:init] cfg.class_weights type:", type(cfg.get("class_weights", None)))
+
+
+        # check trainable params (useful to know if backbone frozen)
+        trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in self.parameters())
+        print(f"[DEBUG:init] trainable params = {trainable:,} / {total:,}")
+
+        # check class weight sanity (if present)
+        if self.class_weights is not None:
+            w = torch.as_tensor(self.class_weights).float()
+            print("[DEBUG:init] class_weights (cpu) =", w.detach().cpu().tolist())
+            print("[DEBUG:init] class_weights min/max/mean =", float(w.min()), float(w.max()), float(w.mean()))
+            assert torch.isfinite(w).all(), "class_weights has NaN/Inf"
+            assert float(w.max()) > 1.0 or float(w.min()) < 1.0, "class_weights look uninformative (all ~1?)"
+            assert float(w.min()) > 1e-4, "class_weights are tiny (bug: inverse-counts not scaled?)"
+
+
 
         # Optimizer hyperparameters
         self.lr = cfg.get("lr", 1e-4)
@@ -108,6 +132,14 @@ class LightningModel(L.LightningModule):
             self.log(f"{tag}_gpu_memory_gb", gpu_mem, prog_bar=False, on_step=False, on_epoch=True)
             # optional: reset peak stats so next epoch is fresh
             torch.cuda.reset_peak_memory_stats()
+    
+    def _debug_once(self, tag: str, msg: str):
+        flag = f"_did_debug_{tag}"
+        if getattr(self, flag, False):
+            return
+        print(msg)
+        setattr(self, flag, True)
+
     
     def _compute_loss(self, logits, labels):
         if labels is None:
@@ -146,7 +178,6 @@ class LightningModel(L.LightningModule):
         if loss_type == "bce":
             return nn.BCEWithLogitsLoss()(logits, labels)
 
-        # If you truly don’t want distillation/custom here:
         if loss_type == "custom":
             raise ValueError("loss_type='custom' is not supported in this logits-only LightningModel.")
 
@@ -198,10 +229,53 @@ class LightningModel(L.LightningModule):
         pixel_values = pixel_values.to(self.device)
         labels = labels.to(self.device)
 
+        # ---- DEBUG: first batch sanity ----
+        self._debug_once(
+            "train_batch0",
+            (
+                f"[DEBUG:train_batch0] pixel_values={tuple(pixel_values.shape)} dtype={pixel_values.dtype} device={pixel_values.device}\n"
+                f"[DEBUG:train_batch0] labels={tuple(labels.shape)} dtype={labels.dtype} device={labels.device} "
+                f"min={int(labels.min())} max={int(labels.max())}\n"
+                f"[DEBUG:train_batch0] configured num_classes={self.num_classes}"
+            ),
+        )
+
+        # labels must be int64 for CE and in range
+        if self.task == "single_label_classification":
+            assert labels.dtype in (torch.int64, torch.long), f"CE expects int64 labels, got {labels.dtype}"
+            assert labels.min() >= 0, "negative label found"
+            if self.num_classes is not None:
+                assert labels.max() < self.num_classes, f"label out of range: max={int(labels.max())} num_classes={self.num_classes}"
+
+
         #out = self(pixel_values, labels=labels)
         out = self(pixel_values)
         loss = self._compute_loss(out.logits, labels)
         logits = out.logits
+
+        self._debug_once(
+            "train_forward0",
+            (
+                f"[DEBUG:train_forward0] logits={tuple(logits.shape)} dtype={logits.dtype} device={logits.device}\n"
+                f"[DEBUG:train_forward0] loss={float(loss.detach().cpu())}\n"
+                f"[DEBUG:train_forward0] model.task={self.task} loss_type={self.loss_type}"
+            ),
+        )
+
+        # logits must match num_classes for single-label classification
+        if self.task == "single_label_classification" and self.num_classes is not None:
+            assert logits.ndim == 2, f"expected [B,C] logits, got shape {tuple(logits.shape)}"
+            assert logits.size(1) == self.num_classes, f"logits C={logits.size(1)} != num_classes={self.num_classes}"
+
+        # confirm CE is actually using weights (prints once)
+        if self.task == "single_label_classification":
+            w = self.class_weights
+            self._debug_once(
+                "loss_weight_check",
+                "[DEBUG:loss_weight_check] CE weight is "
+                + ("None" if w is None else str(torch.as_tensor(w).detach().cpu().tolist())),
+            )
+
 
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
         
@@ -322,6 +396,15 @@ class LightningModel(L.LightningModule):
         logits = out.logits
 
         self.log("test_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+
+        # ✅ ADD THIS BLOCK RIGHT HERE
+        if self.task == "single_label_classification" and batch_idx == 0:
+            preds = torch.argmax(logits, dim=1)
+            print("[DEBUG:test_pred_stats0] true counts:",
+                torch.bincount(labels, minlength=logits.size(1)).detach().cpu().tolist())
+            print("[DEBUG:test_pred_stats0] pred counts:",
+                torch.bincount(preds, minlength=logits.size(1)).detach().cpu().tolist())
+
 
         # --- update torchmetrics ---
         if self.task == "single_label_classification":

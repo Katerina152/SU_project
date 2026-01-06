@@ -23,6 +23,9 @@ def create_domain_loaders(
     balanced_train: bool = False,
     val_split: float = 0.0,
     return_one_hot: bool = False,
+    model_type: str = "vit",
+    backbone_type: str | None = None,
+    model_name: str | None = None,
 
 ):
     if domain not in DOMAIN_DATASET_MAP:
@@ -33,7 +36,7 @@ def create_domain_loaders(
 
     if domain.endswith("_segmentation"):
         train_transform = build_segmentation_transform(resolution, train=True)
-        eval_transform  = build_segmentation_transform(resolution, train=False)
+        eval_transform  = build_segmentation_transform(resolution, train=True)
         test_transform  = build_segmentation_transform(resolution, train=False)
 
         logger.info(f"[{domain}] (SEG) Train transform:\n{train_transform}")
@@ -52,9 +55,9 @@ def create_domain_loaders(
         return loaders
 
 
-    train_transform = build_transformation_pipeline(resolution, train=True)
-    eval_transform  = build_transformation_pipeline(resolution, train=False)
-    test_transform = build_transformation_pipeline(resolution, train=False)
+    train_transform = build_transformation_pipeline(resolution, train=True,model_type=model_type, backbone_type=backbone_type, model_name=model_name)
+    eval_transform  = build_transformation_pipeline(resolution, train=True, model_type=model_type, backbone_type=backbone_type, model_name=model_name)
+    test_transform = build_transformation_pipeline(resolution, train=False, model_type=model_type, backbone_type=backbone_type, model_name=model_name)
 
     logger.info(f"[{domain}] Train transform:\n{train_transform}")
     logger.info(f"[{domain}] Eval  transform:\n{eval_transform}")
