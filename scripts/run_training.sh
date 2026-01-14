@@ -63,7 +63,7 @@ mkdir -p ~/cool_project/logs
 cd ~/cool_project
 
 export PYTHONFAULTHANDLER=1
-export CUDA_LAUNCH_BLOCKING=1      # turn off later when things are stable
+export CUDA_LAUNCH_BLOCKING=1      
 export NCCL_DEBUG=WARN
 
 nvidia-smi --query-gpu=timestamp,name,utilization.gpu,memory.total,memory.used \
