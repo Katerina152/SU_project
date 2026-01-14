@@ -36,7 +36,7 @@ def create_domain_loaders(
 
     if domain.endswith("_segmentation"):
         train_transform = build_segmentation_transform(resolution, train=True)
-        eval_transform  = build_segmentation_transform(resolution, train=True)
+        eval_transform  = build_segmentation_transform(resolution, train=False)
         test_transform  = build_segmentation_transform(resolution, train=False)
 
         logger.info(f"[{domain}] (SEG) Train transform:\n{train_transform}")
@@ -56,7 +56,7 @@ def create_domain_loaders(
 
 
     train_transform = build_transformation_pipeline(resolution, train=True,model_type=model_type, backbone_type=backbone_type, model_name=model_name)
-    eval_transform  = build_transformation_pipeline(resolution, train=True, model_type=model_type, backbone_type=backbone_type, model_name=model_name)
+    eval_transform  = build_transformation_pipeline(resolution, train=False, model_type=model_type, backbone_type=backbone_type, model_name=model_name)
     test_transform = build_transformation_pipeline(resolution, train=False, model_type=model_type, backbone_type=backbone_type, model_name=model_name)
 
     logger.info(f"[{domain}] Train transform:\n{train_transform}")

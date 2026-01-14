@@ -13,6 +13,8 @@ from torch.utils.data import random_split
 import torch.nn as nn  
 from pathlib import Path
 from typing import Dict
+from torch.utils.data import Subset
+
 
 
 import logging
@@ -114,6 +116,11 @@ class GenericCSVDataset(Dataset):
             (row_sums == 0).any()                 # some all-zero rows
         )
 
+        # after computing has_implicit_other
+        if self.return_one_hot:
+            self.has_implicit_other = False
+
+
         if self.has_implicit_other:
             self.class_names = ["other"] + self.label_cols
             self.num_classes = 1 + len(self.label_cols)
@@ -196,6 +203,10 @@ class GenericCSVDataset(Dataset):
 
         return img, label, image_id
 
+def _unwrap_subset(ds):
+    # If you used random_split, you might have Subset(GenericCSVDataset)
+    return ds.dataset if isinstance(ds, Subset) else ds
+
 
 
 class DistillDataset(Dataset):
@@ -222,48 +233,188 @@ class DistillDataset(Dataset):
         teacher_emb = self.teacher_embs[idx]
         return img, teacher_emb
 
-
+'''
 class DistillDatasetById(Dataset):
     """
-    Safer distillation dataset.
-    Matches teacher embeddings to samples by image_id.
-    Intended for use with precomputed embeddings from a separate run.
+    Returns:
+      - if aug_transform is None: (x_base, t)
+      - else: (x_base, x_aug, t)
     """
 
-    def __init__(self, base_dataset, id_to_embedding: dict):
-        self.base_dataset = base_dataset
+    def __init__(self, base_dataset, id_to_embedding: dict, base_transform, aug_transform=None):
+        # unwrap if random_split created Subset(GenericCSVDataset)
+        self.base_dataset = base_dataset.dataset if isinstance(base_dataset, Subset) else base_dataset
+
         self.id_to_embedding = id_to_embedding
+        self.base_transform = base_transform
+        self.aug_transform = aug_transform
+
+        if not hasattr(self.base_dataset, "df") or not hasattr(self.base_dataset, "id_to_path"):
+            raise RuntimeError("Expected base_dataset to have .df and .id_to_path (GenericCSVDataset).")
 
     def __len__(self):
         return len(self.base_dataset)
 
-    def _get_id(self, idx):
-        if hasattr(self.base_dataset, "get_id"):
-            return str(self.base_dataset.get_id(idx))
+    def __getitem__(self, idx):
+        image_id = str(self.base_dataset.df.iloc[idx]["image"])
+        if image_id not in self.id_to_embedding:
+            raise KeyError(f"No teacher embedding for image_id='{image_id}'")
+        
+    
+        t = self.id_to_embedding[image_id]
+        img_path = self.base_dataset.id_to_path[image_id]
+        img = Image.open(img_path).convert("RGB")
 
-        if hasattr(self.base_dataset, "image_ids"):
-            return str(self.base_dataset.image_ids[idx])
+        x_base = self.base_transform(img)
 
-        if hasattr(self.base_dataset, "df"):
-            row = self.base_dataset.df.iloc[idx]
-            for key in ["image", "image_id", "id", "filename"]:
-                if key in row:
-                    return str(row[key])
+        if self.aug_transform is None:
+            return x_base, t
 
-        raise RuntimeError(
-            "Cannot infer image_id from base_dataset. "
-            "Expose get_id(), image_ids, or df['image']."
+        x_aug = self.aug_transform(img)
+
+        logger.debug(
+            f"[distill-ds] id={image_id} "
+            f"x_base={tuple(x_base.shape)} "
+            f"x_aug={'None' if self.aug_transform is None else tuple(x_aug.shape)} "
+            f"t={tuple(t.shape)}"
         )
 
-    def __getitem__(self, idx):
-        item = self.base_dataset[idx]
-        img = item[0] if isinstance(item, (tuple, list)) else item
+        if not hasattr(self, "_printed_once"):
+            logger.info(
+                f"[distill-ds] sample check:\n"
+                f"  image_id={image_id}\n"
+                f"  base_transform={self.base_transform}\n"
+                f"  aug_transform={'None' if self.aug_transform is None else self.aug_transform}\n"
+                f"  embedding_shape={tuple(t.shape)}"
+            )
+            self._printed_once = True
 
-        image_id = self._get_id(idx)
+        return x_base, x_aug, t
+
+'''
+
+
+class DistillDatasetById(Dataset):
+    """
+    Returns:
+      - if aug_transforms is None: (x_base, t)
+      - else: (x_base, x_augs, t) where x_augs is list length K
+    """
+    def __init__(self, base_dataset, id_to_embedding: dict, base_transform, aug_transforms=None):
+        self.base_dataset = base_dataset          # keep Subset if it is Subset
+        self.id_to_embedding = id_to_embedding
+        self.base_transform = base_transform
+        self.aug_transforms = aug_transforms      # list[callable] or None
+        self._printed_once = False
+
+        # underlying dataset must have df/id_to_path
+        ds0 = base_dataset.dataset if isinstance(base_dataset, Subset) else base_dataset
+        if not hasattr(ds0, "df") or not hasattr(ds0, "id_to_path"):
+            raise RuntimeError("Expected underlying dataset to have .df and .id_to_path (GenericCSVDataset).")
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def _resolve_row(self, idx):
+        if isinstance(self.base_dataset, Subset):
+            real_idx = self.base_dataset.indices[idx]
+            ds0 = self.base_dataset.dataset
+        else:
+            real_idx = idx
+            ds0 = self.base_dataset
+        row = ds0.df.iloc[real_idx]
+        return ds0, row
+
+    def __getitem__(self, idx):
+        ds0, row = self._resolve_row(idx)
+        image_id = str(row["image"])
+
         if image_id not in self.id_to_embedding:
             raise KeyError(f"No teacher embedding for image_id='{image_id}'")
 
-        return img, self.id_to_embedding[image_id]
+        t = self.id_to_embedding[image_id]
+        img_path = ds0.id_to_path[image_id]
+        img = Image.open(img_path).convert("RGB")
+
+        x_base = self.base_transform(img)
+
+        if self.aug_transforms is None:
+            if not self._printed_once:
+                logger.info(
+                    f"[distill-ds] sample check (one-view): image_id={image_id} "
+                    f"base_tf={self.base_transform} emb_shape={tuple(t.shape)} x_base={tuple(x_base.shape)}"
+                )
+                self._printed_once = True
+            return x_base, t
+
+        x_augs = [tf(img) for tf in self.aug_transforms]  # K views
+
+        if not self._printed_once:
+            logger.info(
+                f"[distill-ds] sample check (K-view): image_id={image_id}\n"
+                f"  base_tf={self.base_transform}\n"
+                f"  K={len(x_augs)} aug_tfs={[str(tf) for tf in self.aug_transforms]}\n"
+                f"  x_base={tuple(x_base.shape)} x_augs={[tuple(x.shape) for x in x_augs]} emb={tuple(t.shape)}"
+            )
+            self._printed_once = True
+
+        return x_base, x_augs, t
+
+import torch
+
+def distill_k_view_collate(batch):
+    """
+    batch items are either:
+      - (x_base, t)           if aug_transforms is None
+      - (x_base, x_augs, t)   where x_augs is list length K
+    Returns: (X, T)
+    """
+    first = batch[0]
+
+    # one-view case
+    if len(first) == 2:
+        x = torch.stack([b[0] for b in batch], 0)  # [B,C,H,W]
+        t = torch.stack([b[1] for b in batch], 0)  # [B,D]
+        return x, t
+
+    # K-view case
+    x_base = torch.stack([b[0] for b in batch], 0)  # [B,C,H,W]
+    x_augs_list = [b[1] for b in batch]             # list of length B, each is list length K
+    t = torch.stack([b[2] for b in batch], 0)       # [B,D]
+
+    K = len(x_augs_list[0])
+    x_augs = []
+    for k in range(K):
+        xk = torch.stack([x_augs_list[i][k] for i in range(len(batch))], 0)  # [B,C,H,W]
+        x_augs.append(xk)
+
+    X = torch.cat([x_base] + x_augs, 0)      # [(K+1)B,C,H,W]
+    T = torch.cat([t] * (K + 1), 0)          # [(K+1)B,D]
+
+    # sanity
+    assert X.shape[0] == T.shape[0], f"Mismatch: X={X.shape} T={T.shape}"
+    assert X.ndim == 4, "Images must be [B,C,H,W]"
+    assert T.ndim == 2, "Embeddings must be [B,D]"
+
+    return X, T
+
+
+def distill_two_view_collate(batch):
+    # batch: list of (x_base, x_aug, t)
+    x_base = torch.stack([b[0] for b in batch], dim=0)  # [B,C,H,W]
+    x_aug  = torch.stack([b[1] for b in batch], dim=0)  # [B,C,H,W]
+    t      = torch.stack([b[2] for b in batch], dim=0)  # [B,D]
+
+    X = torch.cat([x_base, x_aug], dim=0)  # [2B,C,H,W]
+    T = torch.cat([t, t], dim=0)           # [2B,D]
+    return X, T
+
+def distill_one_view_collate(batch):
+    # batch: list of (x_base, t)
+    x = torch.stack([b[0] for b in batch], dim=0)  # [B,C,H,W]
+    t = torch.stack([b[1] for b in batch], dim=0)  # [B,D]
+    return x, t
+
 
 def load_teacher_id_map(embeddings_dir: Path, split: str) -> Dict[str, torch.Tensor]:
     """

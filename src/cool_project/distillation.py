@@ -29,11 +29,14 @@ import lightning as L
 from torch.utils.data import Dataset, DataLoader
 from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
-from cool_project.dataloader import DistillDatasetById, load_teacher_id_map
+from lightning.pytorch.callbacks import Callback
+from cool_project.dataloader import DistillDatasetById, load_teacher_id_map, distill_two_view_collate, distill_one_view_collate, distill_k_view_collate
 from cool_project.backbones_heads.models import build_model_from_config
 from cool_project.lightning_model_distill import LightningDistillModel
 from cool_project.lightning_model_distill import LightningDistillModel
 from cool_project.data_domain import create_domain_loaders, DOMAIN_DATASET_MAP
+from cool_project.preprocessing import build_pipeline_for_model, build_aug_pipeline_for_model
+
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +48,34 @@ logger = logging.getLogger(__name__)
 def load_config(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
         return json.load(f)
+
+
+class StopReasonCallback(Callback):
+    def on_fit_end(self, trainer, pl_module):
+        # epoch info
+        max_epochs = trainer.max_epochs
+        ended_epoch = trainer.current_epoch + 1  # current_epoch is 0-based
+
+        logger.info(f"[distill] FIT_END: ended_epoch={ended_epoch} max_epochs={max_epochs}")
+        logger.info(f"[distill] FIT_END: global_step={trainer.global_step}")
+        logger.info(f"[distill] FIT_END: should_stop={trainer.should_stop} interrupted={trainer.interrupted}")
+
+        # early stopping info (if present)
+        es = next((cb for cb in trainer.callbacks if isinstance(cb, EarlyStopping)), None)
+        if es is not None:
+            logger.info(
+                f"[distill] FIT_END: EarlyStopping monitor={es.monitor} mode={es.mode} "
+                f"patience={es.patience} stopped_epoch={getattr(es,'stopped_epoch',None)} "
+                f"wait_count={getattr(es,'wait_count',None)} best_score={getattr(es,'best_score',None)}"
+            )
+
+        # checkpoint info (best model)
+        ckpt = next((cb for cb in trainer.callbacks if isinstance(cb, ModelCheckpoint)), None)
+        if ckpt is not None:
+            logger.info(
+                f"[distill] FIT_END: Checkpoint monitor={ckpt.monitor} best_model_score={ckpt.best_model_score} "
+                f"best_model_path={ckpt.best_model_path}"
+            )
 
 
 def setup_logging(seed_dir: Path):
@@ -124,28 +155,87 @@ def run_distillation(config_path: str):
         model_name=cfg["model"].get("backbone", {}).get("model_name", None),
     )
 
-    # Wrap datasets with teacher embeddings
-    def wrap_split(split: str, base_loader: Optional[DataLoader], shuffle: bool) -> Optional[DataLoader]:
+    def wrap_split(split: str, base_loader, shuffle: bool):
         if base_loader is None:
             return None
+
         id_to_emb = load_teacher_id_map(embeddings_dir, split)
-        wrapped_ds = DistillDatasetById(base_loader.dataset, id_to_emb)
-        return DataLoader(
+
+        model_type = cfg["model"].get("type", "vit").lower()
+        backbone_type = cfg["model"].get("backbone", {}).get("type", None)
+        model_name = cfg["model"].get("backbone", {}).get("model_name", None)
+
+        base_tf = build_pipeline_for_model(
+            model_type=model_type,
+            size=data_cfg["resolution"],
+            mode="train" if split == "train" else "test",
+            backbone_type=backbone_type,
+            model_name=model_name,
+        )
+
+        if split == "train":
+            #K = 5
+            K = int(cfg.get("teacher", {}).get("num_views", 5))
+
+            aug_transforms = [
+                build_aug_pipeline_for_model(
+                    model_type=model_type,
+                    size=data_cfg["resolution"],
+                    mode="train",
+                    backbone_type=backbone_type,
+                    model_name=model_name,
+                    aug_id=i,
+                )
+                for i in range(K)
+            ]
+        else:
+            aug_transforms = None
+
+        logger.info(f"[distill] split={split} base_tf:\n{base_tf}")
+        if aug_transforms is not None:
+            for i, tf in enumerate(aug_transforms):
+                logger.info(f"[distill] split={split} aug_tf[{i}]:\n{tf}")
+
+        wrapped_ds = DistillDatasetById(
+            base_dataset=base_loader.dataset,
+            id_to_embedding=id_to_emb,
+            base_transform=base_tf,
+            aug_transforms=aug_transforms,
+        )
+
+        dl = DataLoader(
             wrapped_ds,
             batch_size=data_cfg.get("batch_size", 32),
             num_workers=data_cfg.get("num_workers", 4),
             shuffle=shuffle,
             pin_memory=True,
             drop_last=False,
+            collate_fn=distill_k_view_collate,
         )
+
+        return dl
+
 
     train_loader = wrap_split("train", base_loaders.get("train"), shuffle=True)
     val_loader   = wrap_split("val",   base_loaders.get("val"),   shuffle=False)
     test_loader  = wrap_split("test",  base_loaders.get("test"),  shuffle=False)
 
+    X, T = next(iter(train_loader))
+    logger.info(f"[distill] Train batch X={X.shape} T={T.shape}")
+
+    if val_loader is not None:
+        Xv, Tv = next(iter(val_loader))
+        logger.info(f"[distill] Val batch X={Xv.shape} T={Tv.shape}")
+
+    if test_loader is not None:
+        Xt, Tt = next(iter(test_loader))
+        logger.info(f"[distill] Test batch X={Xt.shape} T={Tt.shape}")
+
+
+
     # Quick sanity check
-    xb, tb = next(iter(train_loader))
-    logger.info(f"[distill] First batch x.shape={getattr(xb, 'shape', None)} teacher.shape={getattr(tb, 'shape', None)}")
+    #xb, tb = next(iter(train_loader))
+    #logger.info(f"[distill] First batch x.shape={getattr(xb, 'shape', None)} teacher.shape={getattr(tb, 'shape', None)}")
 
     # Build student model
     student_model = build_model_from_config(cfg)
@@ -188,6 +278,9 @@ def run_distillation(config_path: str):
             save_last=True,
             save_top_k=0,
         ))
+    
+    callbacks.append(StopReasonCallback())
+
 
     # Hardware (same pattern you used)
     num_visible = torch.cuda.device_count()
@@ -208,9 +301,30 @@ def run_distillation(config_path: str):
     else:
         trainer_kwargs.update(accelerator="cpu", devices=1, num_nodes=1)
 
-    trainer = L.Trainer(**trainer_kwargs)
+    trainer = L.Trainer(**trainer_kwargs, precision="16-mixed")
+
 
     logger.info("[distill] Starting distillation training...")
+    #assert X.shape[0] == T.shape[0], "Mismatch: batch images vs teacher embeddings"
+    #assert X.ndim == 4, "Images must be [B,C,H,W]"
+    #assert T.ndim == 2, "Embeddings must be [B,D]"
+
+    #K = 5
+    K = int(cfg.get("teacher", {}).get("num_views", 5))
+
+    assert X.ndim == 4 and T.ndim == 2
+    assert X.shape[0] == T.shape[0]
+
+    # Infer batch size from data
+    assert T.shape[0] % (K + 1) == 0, \
+        f"Total views {T.shape[0]} not divisible by K+1={K+1}"
+
+    B_actual = T.shape[0] // (K + 1)
+
+    logger.info(
+        f"[distill] Detected batch_size={B_actual}, num_views={K}, total_images={X.shape[0]}"
+    )
+
     trainer.fit(lit_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
     if test_loader is not None:
@@ -219,3 +333,74 @@ def run_distillation(config_path: str):
 
     logger.info("[distill] Done.")
 
+
+"""
+    # Wrap datasets with teacher embeddings
+    def wrap_split(split: str, base_loader: Optional[DataLoader], shuffle: bool) -> Optional[DataLoader]:
+        if base_loader is None:
+            return None
+
+        id_to_emb = load_teacher_id_map(embeddings_dir, split)
+
+        model_type = cfg["model"].get("type", "vit").lower()
+        backbone_type = cfg["model"].get("backbone", {}).get("type", None)
+        model_name = cfg["model"].get("backbone", {}).get("model_name", None)
+
+        # Base transform: whatever policy you want for the "clean" view
+        # IMPORTANT: for your code, mode should be "train" or not; you used "test" elsewhere,
+        # but build_pipeline_for_model treats anything != "train" as "else".
+        base_tf = build_pipeline_for_model(
+            model_type=model_type,
+            size=data_cfg["resolution"],
+            mode="train" if split == "train" else "test",
+            backbone_type=backbone_type,
+            model_name=model_name,
+        )
+
+        if split == "train":
+            # Aug transform only for training
+            aug_tf = build_aug_pipeline_for_model(
+                model_type=model_type,
+                size=data_cfg["resolution"],
+                mode="train",
+                backbone_type=backbone_type,
+                model_name=model_name,
+            )
+
+            wrapped_ds = DistillDatasetById(
+                base_dataset=base_loader.dataset,
+                id_to_embedding=id_to_emb,
+                base_transform=base_tf,
+                aug_transform=aug_tf,
+            )
+            collate = distill_two_view_collate
+
+        else:
+            # val/test: single view only (no augmentation)
+            wrapped_ds = DistillDatasetById(
+                base_dataset=base_loader.dataset,
+                id_to_embedding=id_to_emb,
+                base_transform=base_tf,
+                aug_transform=None,
+            )
+            collate = distill_one_view_collate
+        
+        logger.info(
+            f"[distill] split={split}\n"
+            f"  base_tf={base_tf}\n"
+            f"  aug_tf={'None' if split != 'train' else aug_tf}\n"
+            f"  collate={'two_view' if split == 'train' else 'one_view'}"
+        )
+
+
+        return DataLoader(
+            wrapped_ds,
+            batch_size=data_cfg.get("batch_size", 32),
+            num_workers=data_cfg.get("num_workers", 4),
+            shuffle=shuffle,
+            pin_memory=True,
+            drop_last=False,
+            collate_fn=collate,
+        )
+
+"""

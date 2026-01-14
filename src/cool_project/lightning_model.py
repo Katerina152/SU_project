@@ -29,7 +29,7 @@ except ImportError:
     HAVE_DEEPSPEED = False
 
 class LightningModel(L.LightningModule):
-    def __init__(self, model: torch.nn.Module, cfg: Dict, distill_on: bool = False):
+    def __init__(self, model: torch.nn.Module, cfg: Dict): #distill_on: bool = False
         """
         model: VisionTransformerWithHead instance
         cfg:   dict with things like:
@@ -45,15 +45,15 @@ class LightningModel(L.LightningModule):
         super().__init__()
         self.model = model
         self.cfg = cfg
-        self.distill_on = distill_on
+        #self.distill_on = distill_on
         
         self.save_hyperparameters(cfg)
 
-        if self.distill_on:
-            self.distill_loss = EmbeddingDistillationLoss(
-                lamda_feat=cfg.get("lamda_feat", 1.0),
-                lamda_cos=cfg.get("lamda_cos", 1.0),
-            )
+        #if self.distill_on:
+            #self.distill_loss = EmbeddingDistillationLoss(
+                #lamda_feat=cfg.get("lamda_feat", 1.0),
+                #lamda_cos=cfg.get("lamda_cos", 1.0),
+            #)
 
         # FLOPs profiling config
         self.profile_flops = bool(cfg.get("profile_flops", False))
@@ -97,13 +97,10 @@ class LightningModel(L.LightningModule):
             assert float(w.max()) > 1.0 or float(w.min()) < 1.0, "class_weights look uninformative (all ~1?)"
             assert float(w.min()) > 1e-4, "class_weights are tiny (bug: inverse-counts not scaled?)"
 
-
-
         # Optimizer hyperparameters
         self.lr = cfg.get("lr", 1e-4)
         self.weight_decay = cfg.get("weight_decay", 0.0)
         
-
         # Where to save outputs
         self.exp_name = cfg.get("experiment_name", "default_exp")
         self.output_dir = Path(cfg.get("output_dir", "runs")) 

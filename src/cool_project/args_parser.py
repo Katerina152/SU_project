@@ -19,7 +19,11 @@ def parse_args():
 
     )
 
+    parser.add_argument("--trial-index", type=int, default=None)
+    parser.add_argument("--sweep", action="store_true")
+
+
     return parser.parse_args()
 
-    parser.add 
+
 

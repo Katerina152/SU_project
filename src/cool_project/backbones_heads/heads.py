@@ -29,12 +29,14 @@ def get_activation(name: Optional[str]) -> nn.Module:
 # Head modules
 # ------------
 class LinearHead(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int, output_activation: Optional[str]):
+    def __init__(self, input_dim: int, output_dim: int, output_activation: Optional[str], dropout=0.0):
         super().__init__()
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         self.linear = nn.Linear(input_dim, output_dim)
         self.activation = get_activation(output_activation)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.dropout(x)
         x = self.linear(x)
         x = self.activation(x)
         return x
@@ -81,6 +83,7 @@ def init_head(head_cfg: Dict[str, Any], input_dim: int) -> nn.Module:
         return LinearHead(
             input_dim=input_dim,
             output_dim=output_dim,
+            dropout=head_cfg.get("dropout", 0.0),
             output_activation=head_cfg.get("output_activation"),
         )
 

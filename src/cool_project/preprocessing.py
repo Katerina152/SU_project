@@ -4,6 +4,7 @@ from torchvision.transforms import functional as F
 import numpy as np
 import torch
 
+
 # ---- Atomic building blocks ----
 BASE_TRANSFORMS = {
     "to_tensor": transforms.ToTensor(),
@@ -93,14 +94,16 @@ def build_pipeline_for_model(
 
     elif model_type == "vit" :
         if backbone_type == "timm":
+            geom = make_resize_center_crop(size, crop_pct=1.0)  # or 0.95 if you want that policy
             # ViT-style: often uses bicubic and simple augmentations
             if mode == "train":
                 return transforms.Compose([
-                    transforms.RandomResizedCrop(
-                        size=size,
-                        scale=(0.6, 1.0),
-                        interpolation=transforms.InterpolationMode.BICUBIC,
-                    ),
+                    #transforms.RandomResizedCrop(
+                        #size=size,
+                        #scale=(0.6, 1.0),
+                        #interpolation=transforms.InterpolationMode.BICUBIC,
+                    #),
+                    geom ,
                     BASE_TRANSFORMS["to_tensor"],
                     BASE_TRANSFORMS["normalize_imagenet"],
                 ])
@@ -126,7 +129,7 @@ def build_pipeline_for_model(
                         #interpolation=transforms.InterpolationMode.BICUBIC,
                     #),
                     #transforms.CenterCrop(size),
-                    resize,
+                    geom,
                     BASE_TRANSFORMS["to_tensor"],
                     BASE_TRANSFORMS["normalize_imagenet"],
                 
@@ -181,6 +184,131 @@ def build_pipeline_for_model(
                 BASE_TRANSFORMS["normalize_imagenet"],
             ])
 
+'''
+def build_aug_pipeline_for_model(
+    model_type: str,
+    size: int,
+    mode: str = "train",
+    backbone_type: str | None = None,
+    model_name: str | None = None,
+):
+    """
+    model_type: "cnn", "vit", "dino", etc.
+    size: target input size (e.g., 224, 512, ...)
+    mode: "train" or "eval"
+
+    Returns a torchvision.transforms.Compose.
+    """
+    resize = make_resize(size)
+
+    # only implement what you want; no fallback
+    if not (model_type == "vit" and backbone_type == "timm"):
+        raise ValueError(f"Aug pipeline only for vit+timm. Got model_type={model_type}, backbone_type={backbone_type}")
+
+    if mode == "train":
+        return transforms.Compose([
+            transforms.RandomResizedCrop(
+                size=size,
+                scale=(0.6, 1.0),
+                interpolation=transforms.InterpolationMode.BICUBIC,
+            ),
+            transforms.RandomRotation(15),
+            BASE_TRANSFORMS["to_tensor"],
+            BASE_TRANSFORMS["normalize_imagenet"],
+        ])
+    else:
+        return transforms.Compose([
+            resize,
+            BASE_TRANSFORMS["to_tensor"],
+            BASE_TRANSFORMS["normalize_imagenet"],
+        ])
+'''
+
+def build_aug_pipeline_for_model(
+    model_type: str,
+    size: int,
+    mode: str = "train",
+    backbone_type: str | None = None,
+    model_name: str | None = None,
+    aug_id: int = 0,  # 0..4
+):
+    resize = make_resize(size)
+
+    # only implement what you want; no fallback
+    if not (model_type == "vit" and backbone_type == "timm"):
+        raise ValueError(
+            f"Aug pipeline only for vit+timm. Got model_type={model_type}, backbone_type={backbone_type}"
+        )
+
+    # val/test: deterministic (no augmentation)
+    if mode != "train":
+        return transforms.Compose([
+            resize,
+            BASE_TRANSFORMS["to_tensor"],
+            BASE_TRANSFORMS["normalize_imagenet"],
+        ])
+
+    # --- Shared: keep output size consistent ---
+    # We'll use RandomResizedCrop in most views so every aug stays [size,size].
+    # Blur should also happen on a resized/cropped image.
+    if aug_id == 0:
+        # BLUR view (1 blur)
+        ops = [
+            transforms.RandomResizedCrop(
+                size=size, scale=(0.6, 1.0),
+                interpolation=transforms.InterpolationMode.BICUBIC
+            ),
+            transforms.GaussianBlur(kernel_size=23, sigma=(0.1, 2.0)),
+        ]
+
+    elif aug_id == 1:
+        # ROTATION #1 (mild)
+        ops = [
+            transforms.RandomResizedCrop(
+                size=size, scale=(0.6, 1.0),
+                interpolation=transforms.InterpolationMode.BICUBIC
+            ),
+            transforms.RandomRotation(10),
+        ]
+
+    elif aug_id == 2:
+        # ROTATION #2 (strong)
+        ops = [
+            transforms.RandomResizedCrop(
+                size=size, scale=(0.6, 1.0),
+                interpolation=transforms.InterpolationMode.BICUBIC
+            ),
+            transforms.RandomRotation(25),
+        ]
+
+    elif aug_id == 3:
+        # CROP #1 (mild crop)
+        ops = [
+            transforms.RandomResizedCrop(
+                size=size, scale=(0.6, 1.0),
+                interpolation=transforms.InterpolationMode.BICUBIC
+            ),
+        ]
+
+    elif aug_id == 4:
+        # CROP #2 (strong crop)
+        ops = [
+            transforms.RandomResizedCrop(
+                size=size, scale=(0.3, 1.0),
+                interpolation=transforms.InterpolationMode.BICUBIC
+            ),
+        ]
+
+    else:
+        raise ValueError(f"aug_id must be in [0..4], got {aug_id}")
+
+    return transforms.Compose([
+        *ops,
+        BASE_TRANSFORMS["to_tensor"],
+        BASE_TRANSFORMS["normalize_imagenet"],
+    ])
+
+
 class SegmentationTransform:
     def __init__(self, size: int, train: bool = True):
         self.size = size
@@ -216,6 +344,30 @@ def build_transformation_pipeline(size: int, train: bool = True, model_type: str
     mode = "train" if train else "test"
     return build_pipeline_for_model(model_type, size, mode, backbone_type=backbone_type, model_name=model_name)
 
+'''
+def build_aug_transformation_pipeline(size: int, train: bool = True,
+                                      model_type: str = "vit", backbone_type=None, model_name=None):
+    mode = "train" if train else "eval"
+    return build_aug_pipeline_for_model(model_type, size, mode, backbone_type=backbone_type, model_name=model_name)
+'''
+
+def build_aug_transformation_pipeline(
+    size: int,
+    train: bool = True,
+    model_type: str = "vit",
+    backbone_type=None,
+    model_name=None,
+    aug_id: int = 0,
+):
+    mode = "train" if train else "test"  # use "test" to match your style
+    return build_aug_pipeline_for_model(
+        model_type=model_type,
+        size=size,
+        mode=mode,
+        backbone_type=backbone_type,
+        model_name=model_name,
+        aug_id=aug_id,
+    )
 
 
 def build_segmentation_transform(size: int, train: bool = True):

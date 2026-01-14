@@ -16,7 +16,9 @@ Example for dermatology + seed=0:
 import json
 import argparse
 from pathlib import Path
-
+import copy
+import itertools
+import csv
 import torch
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
@@ -29,12 +31,12 @@ from cool_project.dataloader import is_multilabel_from_config, compute_class_wei
 from cool_project.training_utils import build_trainer_from_env
 from transformers.utils import default_cache_path
 import os
+import logging
+import tempfile
 
 print("HF default cache path:", default_cache_path)
 print("HF_HOME:", os.getenv("HF_HOME"))
 print("TRANSFORMERS_CACHE:", os.getenv("TRANSFORMERS_CACHE"))
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +77,7 @@ def setup_logging(seed_dir: Path):
 # ----------------------------
 # Main training function
 # ----------------------------
-def build_training_experiment(config_path: str):
+def build_training_experiment(config_path: str, run_tag: str | None = None, run_test: bool = True):
     cfg = load_config(config_path)
     logger.info(f"Loaded config from {config_path}")
 
@@ -111,11 +113,6 @@ def build_training_experiment(config_path: str):
     L.seed_everything(seed)
     logger.info(f"Seed = {seed}")
 
-    # Optional
-    #torch.manual_seed(seed)
-    #np.random.seed(seed)
-    #random.seed(seed)
-
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
@@ -142,7 +139,13 @@ def build_training_experiment(config_path: str):
     out_dir = Path(cfg.get("output_dir", "runs"))
     exp_root = out_dir / dataset_root / exp_name
     job_id = os.environ.get("SLURM_JOB_ID", "local")
-    seed_dir = exp_root / f"seed_{seed}" / f"job_{job_id}"
+
+    if run_tag is None:
+        seed_dir = exp_root / f"seed_{seed}" / f"job_{job_id}"
+    else:
+        seed_dir = exp_root / f"seed_{seed}" / run_tag / f"job_{job_id}"
+
+    #seed_dir = exp_root / f"seed_{seed}" / f"job_{job_id}"
     #seed_dir = exp_root / f"seed_{seed}"
     seed_dir.mkdir(parents=True, exist_ok=True)
 
@@ -183,14 +186,17 @@ def build_training_experiment(config_path: str):
     first_batch = next(iter(train_loader))
 
     pixel_values, labels, image_ids = first_batch
-    logger.info(f"First train batch pixel_values.shape = {pixel_values.shape}")
-    logger.info(f"First train batch labels.shape       = {labels.shape}")
-    logger.info(
-        f"pixel_values dtype = {pixel_values.dtype}, device = {pixel_values.device}"
-    )
-    logger.info(
-        f"labels dtype       = {labels.dtype}, device = {labels.device}"
-    )
+    logger.info(f"First train batch pixel_values.shape = {getattr(pixel_values, 'shape', None)}")
+    logger.info(f"First train batch labels type        = {type(labels)}")
+    logger.info(f"First train batch labels shape       = {getattr(labels, 'shape', None)}")
+
+    if torch.is_tensor(pixel_values):
+        logger.info(f"pixel_values dtype={pixel_values.dtype}, device={pixel_values.device}")
+
+    if torch.is_tensor(labels):
+        logger.info(f"labels dtype={labels.dtype}, device={labels.device}")
+    else:
+        logger.info(f"labels preview={labels[:10] if isinstance(labels, (list, tuple)) else labels}")
 
     # The dataset the model actually trains on (may be a Subset)
     train_ds = train_loader.dataset
@@ -277,12 +283,6 @@ def build_training_experiment(config_path: str):
             f"(num_samples = {len(df)})"
         )
     
-    print(type(train_loader.dataset))
-    # might be Subset or GenericCSVDataset or DistillDataset
-
-    if hasattr(train_loader.dataset, "dataset"):
-        print("Underlying dataset type:", type(train_loader.dataset.dataset))
-
 
     # ----------------------------------------------------
     # 2. MODEL
@@ -437,21 +437,147 @@ def build_training_experiment(config_path: str):
         val_dataloaders=val_loader,
     )
 
-    # Debug: see if any submodule starts in eval mode
-    for name, module in lit_model.named_modules():
-        if not module.training:
-            print("Module in eval mode at start:", name)
+    # Capture best val score from ModelCheckpoint callback
+    best_val = None
+    for cb in trainer.callbacks:
+        if isinstance(cb, ModelCheckpoint):
+            if cb.best_model_score is not None:
+                best_val = float(cb.best_model_score.detach().cpu().item())
             break
 
-    # ----------------------------------------------------
-    # 8. TEST 
-    # ----------------------------------------------------
-    if test_loader is not None:
-        logger.info("Starting test...")
+    # TEST (only if run_test=True)
+    if run_test and test_loader is not None:
+        logger.info("Starting test (best checkpoint)...")
         trainer.test(
             lit_model,
             dataloaders=test_loader,
+            ckpt_path="best"  # <- important
         )
 
     logger.info("Training script finished.")
+    return best_val
 
+    
+
+def set_nested(cfg, key: str, value):
+    cur = cfg
+    parts = key.split(".")
+    for part in parts[:-1]:
+        cur = cur[part]
+    cur[parts[-1]] = value
+
+
+def run_hparam_sweep(config_path: str):
+    base_cfg = load_config(config_path)
+
+    tune = base_cfg.get("tune", {})
+    grid = tune.get("grid", {})
+    metric = tune.get("metric", "val_loss")
+    mode = tune.get("mode", "min")
+
+    keys = list(grid.keys())
+    values_list = [grid[k] for k in keys]
+
+    results = []
+    for values in itertools.product(*values_list):
+        cfg_trial = copy.deepcopy(base_cfg)
+
+        for k, v in zip(keys, values):
+            set_nested(cfg_trial, k, v)
+
+        # make run_tag
+        parts = []
+        for k, v in zip(keys, values):
+            k2 = k.replace(".", "_")
+            parts.append(f"{k2}_{v:g}" if isinstance(v, float) else f"{k2}_{v}")
+        run_tag = "__".join(parts)
+
+        # write trial config to temp file and call your existing function
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
+            json.dump(cfg_trial, tmp, indent=2)
+            tmp_path = tmp.name
+
+        best_val = build_training_experiment(tmp_path, run_tag=run_tag, run_test=False)
+
+        row = {k: v for k, v in zip(keys, values)}
+        row[f"best_{metric}"] = best_val
+        results.append(row)
+
+    # save CSV summary into seed folder
+    domain = base_cfg["data"]["domain"]
+    dataset_name = base_cfg["data"].get("dataset_name") or DOMAIN_DATASET_MAP.get(domain)
+    exp_name = base_cfg.get("experiment_name", "default_experiment")
+    seed = base_cfg["train"].get("seed", 42)
+    out_dir = Path(base_cfg.get("output_dir", "runs"))
+    exp_root = out_dir / Path(dataset_name) / exp_name / f"seed_{seed}"
+    exp_root.mkdir(parents=True, exist_ok=True)
+
+    summary_path = exp_root / "hparam_sweep_results.csv"
+    fieldnames = keys + [f"best_{metric}"]
+
+    with open(summary_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(results)
+
+    valid = [r for r in results if r[f"best_{metric}"] is not None]
+    if valid:
+        best = min(valid, key=lambda r: r[f"best_{metric}"]) if mode == "min" else max(valid, key=lambda r: r[f"best_{metric}"])
+        print("BEST:", best)
+    print("Saved sweep summary to:", summary_path)
+
+
+def run_trial_by_index(config_path: str, index: int):
+    base_cfg = load_config(config_path)
+    tune = base_cfg.get("tune", {})
+    grid = tune.get("grid", {})
+
+    keys = list(grid.keys())
+    values_list = [grid[k] for k in keys]
+
+    combos = list(itertools.product(*values_list))
+    if index < 0 or index >= len(combos):
+        raise ValueError(f"trial_index {index} out of range [0, {len(combos)-1}]")
+
+    values = combos[index]
+    cfg_trial = copy.deepcopy(base_cfg)
+    for k, v in zip(keys, values):
+        set_nested(cfg_trial, k, v)
+
+    # run_tag
+    parts = []
+    for k, v in zip(keys, values):
+        k2 = k.replace(".", "_")
+        parts.append(f"{k2}_{v:g}" if isinstance(v, float) else f"{k2}_{v}")
+    run_tag = "__".join(parts)
+
+    # temp config
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
+        json.dump(cfg_trial, tmp, indent=2)
+        tmp_path = tmp.name
+
+    # IMPORTANT: no test for tuning trials
+    best_val = build_training_experiment(tmp_path, run_tag=run_tag, run_test=False)
+    print(f"[trial {index}] {run_tag} best_val={best_val}")
+
+'''
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, required=True)
+    parser.add_argument("--sweep", action="store_true")
+    parser.add_argument("--trial-index", type=int, default=None)  # <-- for SLURM arrays
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+
+    # If SLURM array passes a trial index, run exactly one combo
+    if args.trial_index is not None:
+        run_trial_by_index(args.config, args.trial_index)
+
+    else:
+        do_sweep = args.sweep or cfg.get("tune", {}).get("enabled", False)
+        if do_sweep:
+            run_hparam_sweep(args.config)
+        else:
+            build_training_experiment(args.config, run_tag=None, run_test=True)
+'''

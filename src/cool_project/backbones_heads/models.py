@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any, Union, Tuple
 from .heads import init_head
 from .dino_timm_backbone import TimmDinoBackbone
+from transformers import AutoModel
+
 
 
 @dataclass
@@ -27,10 +29,10 @@ class VisionTransformerWithHead(nn.Module):
         self.loss_type = config.get("loss_type", "auto")
         self.custom_loss_fn = custom_loss_fn
 
-        class_weights = config.get("class_weights", None)
-        self.class_weights = (
-            torch.tensor(class_weights, dtype=torch.float32) if class_weights is not None else None
-        )
+        #class_weights = config.get("class_weights", None)
+        #self.class_weights = (
+            #torch.tensor(class_weights, dtype=torch.float32) if class_weights is not None else None
+        #)
 
         # Decide which backbone type we’re using
         self.backbone_type = backbone_cfg.get("type", "hf")  
@@ -43,9 +45,15 @@ class VisionTransformerWithHead(nn.Module):
         if self.backbone_type == "hf":
             hf_model_name = backbone_cfg["model_name"]  
 
-            self.backbone = ViTModel.from_pretrained(
+            #self.backbone = ViTModel.from_pretrained(
+                #hf_model_name,
+                #output_hidden_states=True if self.num_layers_to_use is not None else False,
+            #)
+
+            self.backbone = AutoModel.from_pretrained(
                 hf_model_name,
                 output_hidden_states=True if self.num_layers_to_use is not None else False,
+                trust_remote_code=False,  # keep safe default
             )
 
             # allow non-224 sizes (e.g. 512) by updating config guard
@@ -55,32 +63,35 @@ class VisionTransformerWithHead(nn.Module):
             if self.num_layers_to_use is not None:
                 self.trim_backbone(self.num_layers_to_use)
 
-            self.embed_dim = self.backbone.config.hidden_size
+            #self.embed_dim = self.backbone.config.hidden_size
+            self.embed_dim = getattr(self.backbone.config, "hidden_size", None)
+            if self.embed_dim is None:
+                # fallback for models that name it differently
+                self.embed_dim = getattr(self.backbone.config, "dim", None)
 
         elif self.backbone_type == "timm":
             model_name = backbone_cfg.get("model_name", "vit_small_patch16_224.dino")
             img_size = int(backbone_cfg.get("img_size", 224))
-            freeze_flag = bool(backbone_cfg.get("freeze_backbone", True))
+            #freeze_flag = bool(backbone_cfg.get("freeze_backbone", True))
 
             self.backbone = TimmDinoBackbone(
                 model_name=model_name,
                 img_size=img_size,
                 pooling=self.pooling,
-                freeze_backbone=freeze_flag,
+                #freeze_backbone=freeze_flag,
             )
             self.embed_dim = self.backbone.embed_dim
 
         else:
             raise ValueError(f"Unknown backbone type: {self.backbone_type}")
         
-        # ✅ OPTIONAL: load distilled/pretrained backbone from a .ckpt
+        # OPTIONAL: load distilled/pretrained backbone from a .ckpt
         ckpt_path = backbone_cfg.get("pretrained_ckpt", None)
         if isinstance(ckpt_path, str) and ckpt_path.endswith(".ckpt"):
             print(f"[VisionTransformerWithHead] pretrained_ckpt detected: {ckpt_path}")
             self._load_backbone_from_ckpt(ckpt_path)
         else:
             print("[VisionTransformerWithHead] No pretrained_ckpt provided, using default weights")
-
 
 
         if backbone_cfg.get("freeze_backbone", False):
@@ -135,7 +146,12 @@ class VisionTransformerWithHead(nn.Module):
     def trim_backbone(self, num_layers: int):
         if self.backbone_type != "hf":
             return
-        self.backbone.encoder.layer = self.backbone.encoder.layer[:num_layers]
+        enc = getattr(self.backbone, "encoder", None)
+        if enc is None or not hasattr(enc, "layer"):
+            print("[trim_backbone] Skipping: backbone has no encoder.layer")
+            return
+        enc.layer = enc.layer[:num_layers]
+
 
     def forward(
         self,
@@ -168,15 +184,17 @@ class VisionTransformerWithHead(nn.Module):
             if self.pooling == "cls":
                 pooled = last_hidden[:, 0]
             elif self.pooling == "mean":
-                pooled = last_hidden.mean(dim=1)
+                #pooled = last_hidden.mean(dim=1)
+                pooled = last_hidden[:, 1:, :].mean(dim=1) # exclude CLS token
+
             else:
                 raise ValueError(f"Unknown pooling: {self.pooling}")
 
-            hidden_states = outputs.hidden_states
-            attentions = outputs.attentions
+            hidden_states = getattr(outputs, "hidden_states", None)
+            attentions = getattr(outputs, "attentions", None)
 
         elif self.backbone_type == "timm":
-            pooled = self.backbone(pixel_values)
+            pooled = self.backbone(pixel_values, return_tokens=False)
             hidden_states, attentions = None, None
 
         else:

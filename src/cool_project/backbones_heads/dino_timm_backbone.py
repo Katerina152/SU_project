@@ -36,11 +36,11 @@ class TimmDinoBackbone(nn.Module):
 
         self.embed_dim = self.model.num_features
 
-        if freeze_backbone:
-            for p in self.model.parameters():
-                p.requires_grad = False
+        #if freeze_backbone:
+            #for p in self.model.parameters():
+                #p.requires_grad = False
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, return_tokens=False) -> torch.Tensor:
     
         feats = self.model.forward_features(x)
 
@@ -54,6 +54,8 @@ class TimmDinoBackbone(nn.Module):
 
         # feats is now a tensor
         if feats.ndim == 3:          # [B, N, D]
+            if return_tokens:
+                return feats
             return feats[:, 0] if self.pooling == "cls" else feats.mean(dim=1)
         if feats.ndim == 4:          # [B, C, H, W]
             return feats.mean(dim=(2, 3))
