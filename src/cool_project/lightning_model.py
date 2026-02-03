@@ -29,7 +29,7 @@ except ImportError:
     HAVE_DEEPSPEED = False
 
 class LightningModel(L.LightningModule):
-    def __init__(self, model: torch.nn.Module, cfg: Dict): #distill_on: bool = False
+    def __init__(self, model: torch.nn.Module, cfg: Dict): 
         """
         model: VisionTransformerWithHead instance
         cfg:   dict with things like:
@@ -45,15 +45,9 @@ class LightningModel(L.LightningModule):
         super().__init__()
         self.model = model
         self.cfg = cfg
-        #self.distill_on = distill_on
+        
         
         self.save_hyperparameters(cfg)
-
-        #if self.distill_on:
-            #self.distill_loss = EmbeddingDistillationLoss(
-                #lamda_feat=cfg.get("lamda_feat", 1.0),
-                #lamda_cos=cfg.get("lamda_cos", 1.0),
-            #)
 
         # FLOPs profiling config
         self.profile_flops = bool(cfg.get("profile_flops", False))
@@ -394,7 +388,7 @@ class LightningModel(L.LightningModule):
 
         self.log("test_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
-        # ✅ ADD THIS BLOCK RIGHT HERE
+        # --- DEBUG: test pred stats ---
         if self.task == "single_label_classification" and batch_idx == 0:
             preds = torch.argmax(logits, dim=1)
             print("[DEBUG:test_pred_stats0] true counts:",
@@ -496,9 +490,6 @@ class LightningModel(L.LightningModule):
         def forward(self, x: torch.Tensor):
             out = self.model(pixel_values=x, labels=None, return_dict=True)
             return out.embeddings
-
-
-#===== CHANGE FOR THE NEW OUTPUT ==== TO DO =====
     
     def on_fit_start(self):
         self._move_metrics_to_device()

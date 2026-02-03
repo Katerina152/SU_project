@@ -37,7 +37,7 @@ class LightningDistillModel(L.LightningModule):
         self.cfg = cfg
         self.save_hyperparameters(cfg)
 
-        teacher_dim = int(cfg["teacher"]["embedding_dim"])   # add this to config
+        teacher_dim = int(cfg["teacher"]["embedding_dim"])   
         student_dim = int(getattr(model, "embed_dim"))
 
         self.proj = torch.nn.Linear(student_dim, teacher_dim) if student_dim != teacher_dim else torch.nn.Identity()
@@ -89,7 +89,7 @@ class LightningDistillModel(L.LightningModule):
 
         loss = self.distill_loss(student_embs, teacher_embs)
 
-        # Use self.print (plays nicer with multi-GPU than print)
+    
         if batch_idx == 0:
             self.print(f"[DISTILL] pixel_values={tuple(pixel_values.shape)} teacher={tuple(teacher_embs.shape)} student={tuple(student_embs.shape)}")
 

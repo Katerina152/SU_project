@@ -84,6 +84,22 @@ class VisionTransformerWithHead(nn.Module):
 
         else:
             raise ValueError(f"Unknown backbone type: {self.backbone_type}")
+
+
+        # -----------------------
+        # Projector (for distillation dim alignment)
+        # -----------------------
+        teacher_dim = None
+        if "teacher" in config and isinstance(config["teacher"], dict):
+            teacher_dim = config["teacher"].get("embedding_dim", None)
+
+        self.projector = nn.Identity()
+        if self.task == "distillation" and teacher_dim is not None and self.embed_dim != teacher_dim:
+            self.projector = nn.Linear(self.embed_dim, teacher_dim)
+            print(f"[Projector] Enabled: {self.embed_dim} -> {teacher_dim}")
+        else:
+            print(f"[Projector] Identity: student_dim={self.embed_dim}")
+
         
         # OPTIONAL: load distilled/pretrained backbone from a .ckpt
         ckpt_path = backbone_cfg.get("pretrained_ckpt", None)
@@ -127,10 +143,14 @@ class VisionTransformerWithHead(nn.Module):
                     backbone_state[k[len(p):]] = v
                     break
 
+    
         if not backbone_state:
+            keys = list(state.keys())
+            print("[VisionTransformerWithHead] Example checkpoint keys:", keys[:40])
             raise RuntimeError(
                 f"[VisionTransformerWithHead] No backbone keys found in checkpoint: {ckpt_path}"
             )
+
 
         missing, unexpected = self.backbone.load_state_dict(backbone_state, strict=False)
 
@@ -162,11 +182,6 @@ class VisionTransformerWithHead(nn.Module):
         return_dict: bool = True,
     ) -> Union[VisionOutput, Tuple]:
 
-        # Debug prints (safe)
-        #print("pixel_values:", pixel_values.shape)
-        #if self.backbone_type == "hf":
-            #print("hf expected:", getattr(self.backbone.config, "image_size", None))
-
         if self.backbone_type == "hf":
             kwargs = dict(
                 pixel_values=pixel_values,
@@ -183,7 +198,7 @@ class VisionTransformerWithHead(nn.Module):
             last_hidden = outputs.last_hidden_state
             if self.pooling == "cls":
                 pooled = last_hidden[:, 0]
-            elif self.pooling == "mean":
+            elif self.pooling in ("mean", "avg"):
                 #pooled = last_hidden.mean(dim=1)
                 pooled = last_hidden[:, 1:, :].mean(dim=1) # exclude CLS token
 
@@ -200,17 +215,20 @@ class VisionTransformerWithHead(nn.Module):
         else:
             raise ValueError(f"Unknown backbone type: {self.backbone_type}")
 
+        # embeddings used for distillation (dim-aligned if needed)
+        emb = self.projector(pooled)
+
         logits = self.head(pooled)
         loss = None  # keep your existing _compute_loss call if you want
 
         if not return_dict:
-            out = (logits, pooled, hidden_states, attentions)
+            out = (logits, emb, hidden_states, attentions)
             return ((loss,) + out) if loss is not None else out
 
         return VisionOutput(
             loss=loss,
             logits=logits,
-            embeddings=pooled,
+            embeddings=emb,
             hidden_states=hidden_states,
             attentions=attentions,
         )
@@ -393,9 +411,10 @@ class DinoWithHead(nn.Module):
         
 def build_model_from_config(cfg):
     model_cfg = cfg["model"]
+    model_cfg = {**model_cfg, "teacher": cfg.get("teacher", {})}
     model_type = model_cfg.get("type", "vit").lower()
 
-    if model_type in ["vit", "dino", "dino_timm"]:
+    if model_type in ["vit", "resnet", "dino", "dino_timm"]:
         return VisionTransformerWithHead(config=model_cfg)
 
     if model_type == "dino_specific":

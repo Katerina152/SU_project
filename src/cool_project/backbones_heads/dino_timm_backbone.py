@@ -35,6 +35,9 @@ class TimmDinoBackbone(nn.Module):
             )
 
         self.embed_dim = self.model.num_features
+        if self.embed_dim is None:
+            raise RuntimeError(f"Model {model_name} missing num_features; can't infer embed_dim.")
+
 
         #if freeze_backbone:
             #for p in self.model.parameters():
@@ -53,11 +56,23 @@ class TimmDinoBackbone(nn.Module):
             feats = t
 
         # feats is now a tensor
-        if feats.ndim == 3:          # [B, N, D]
+        if feats.ndim == 3:
             if return_tokens:
                 return feats
-            return feats[:, 0] if self.pooling == "cls" else feats.mean(dim=1)
-        if feats.ndim == 4:          # [B, C, H, W]
-            return feats.mean(dim=(2, 3))
-        return feats                 # [B, D]
 
+            if self.pooling == "cls":
+                return feats[:, 0]  # CLS token
+
+            if self.pooling in ("mean", "avg"):
+                # If you want to exclude CLS: feats[:, 1:, :].mean(dim=1)
+                return feats.mean(dim=1)
+
+            raise ValueError(f"Unknown pooling: {self.pooling}")
+
+        # CNN feature map: [B, C, H, W]
+        if feats.ndim == 4:
+            # Standard global average pooling for CNNs
+            return feats.mean(dim=(2, 3))
+
+        # Already pooled: [B, D]
+        return feats

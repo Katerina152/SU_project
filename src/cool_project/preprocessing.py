@@ -33,7 +33,7 @@ def make_resize(size: int):
     )
 
 def make_resize_square(size: int):
-    # your current behavior (warps aspect ratio)
+    #(warps aspect ratio)
     return transforms.Resize((size, size), interpolation=transforms.InterpolationMode.BICUBIC)
 
 def make_resize_center_crop(size: int, crop_pct: float = 1.0):
@@ -92,43 +92,18 @@ def build_pipeline_for_model(
                 BASE_TRANSFORMS["normalize_imagenet"],
             ])
 
-    elif model_type == "vit" :
+    elif model_type in ("vit", "resnet") :
         if backbone_type == "timm":
-            geom = make_resize_center_crop(size, crop_pct=1.0)  # or 0.95 if you want that policy
-            # ViT-style: often uses bicubic and simple augmentations
+            geom = make_resize_center_crop(size, crop_pct=1.0)  
             if mode == "train":
                 return transforms.Compose([
-                    #transforms.RandomResizedCrop(
-                        #size=size,
-                        #scale=(0.6, 1.0),
-                        #interpolation=transforms.InterpolationMode.BICUBIC,
-                    #),
                     geom ,
                     BASE_TRANSFORMS["to_tensor"],
                     BASE_TRANSFORMS["normalize_imagenet"],
                 ])
-                #return transforms.Compose([
-                    #resize,
-                    # (iii) break pixel-level correspondence
-                    #transforms.RandomRotation(15),      
-                    #BASE_TRANSFORMS["hflip"],           
-                    #BASE_TRANSFORMS["color_jitter_light"],  
-                    #transforms.RandomResizedCrop(size=size, scale=(0.6, 1.0)),
-                    #BASE_TRANSFORMS["to_tensor"],
-                    #transforms.Normalize(
-                        #mean=[0.5, 0.5, 0.5],
-                        #std=[0.5, 0.5, 0.5],
-                    #),
-                #])
+                
             else:
-                #crop_pct = 0.95
-                #resize_size = int(size / crop_pct)  # e.g., 224/0.95 ~= 236
                 return transforms.Compose([
-                    #transforms.Resize(
-                        #resize_size,
-                        #interpolation=transforms.InterpolationMode.BICUBIC,
-                    #),
-                    #transforms.CenterCrop(size),
                     geom,
                     BASE_TRANSFORMS["to_tensor"],
                     BASE_TRANSFORMS["normalize_imagenet"],
@@ -137,37 +112,21 @@ def build_pipeline_for_model(
         
         elif backbone_type == "hf":
             if mode == "train":
-                geom = make_resize_center_crop(size, crop_pct=1.0)  # or 0.95 if you want that policy
+                geom = make_resize_center_crop(size, crop_pct=1.0)  
                 return transforms.Compose([
                     geom,
                     BASE_TRANSFORMS["to_tensor"],
                     BASE_TRANSFORMS["normalize_imagenet"],
                 ])
             else:
-                geom = make_resize_center_crop(size, crop_pct=1.0)  # or 0.95 if you want that policy
+                geom = make_resize_center_crop(size, crop_pct=1.0)  
                 return transforms.Compose([
                     geom,
                     BASE_TRANSFORMS["to_tensor"],
                     BASE_TRANSFORMS["normalize_imagenet"],
                 ])
 
-
-    #elif model_type in ["dino", "dino_timm"]:
-        # Stronger augmentations for self-supervised / DINO-like
-        #if mode == "train":
-            #return transforms.Compose([
-                #resize,
-                #transforms.RandomResizedCrop(size, scale=(0.2, 1.0)),
-                #BASE_TRANSFORMS["to_tensor"],
-                #BASE_TRANSFORMS["normalize_imagenet"],
-            #])
-        #else:
-            #return transforms.Compose([
-                #resize,
-                #BASE_TRANSFORMS["to_tensor"],
-                #BASE_TRANSFORMS["normalize_imagenet"],
-            #])
-
+    
     else: 
         if mode == "train":
             return transforms.Compose([
@@ -184,45 +143,7 @@ def build_pipeline_for_model(
                 BASE_TRANSFORMS["normalize_imagenet"],
             ])
 
-'''
-def build_aug_pipeline_for_model(
-    model_type: str,
-    size: int,
-    mode: str = "train",
-    backbone_type: str | None = None,
-    model_name: str | None = None,
-):
-    """
-    model_type: "cnn", "vit", "dino", etc.
-    size: target input size (e.g., 224, 512, ...)
-    mode: "train" or "eval"
 
-    Returns a torchvision.transforms.Compose.
-    """
-    resize = make_resize(size)
-
-    # only implement what you want; no fallback
-    if not (model_type == "vit" and backbone_type == "timm"):
-        raise ValueError(f"Aug pipeline only for vit+timm. Got model_type={model_type}, backbone_type={backbone_type}")
-
-    if mode == "train":
-        return transforms.Compose([
-            transforms.RandomResizedCrop(
-                size=size,
-                scale=(0.6, 1.0),
-                interpolation=transforms.InterpolationMode.BICUBIC,
-            ),
-            transforms.RandomRotation(15),
-            BASE_TRANSFORMS["to_tensor"],
-            BASE_TRANSFORMS["normalize_imagenet"],
-        ])
-    else:
-        return transforms.Compose([
-            resize,
-            BASE_TRANSFORMS["to_tensor"],
-            BASE_TRANSFORMS["normalize_imagenet"],
-        ])
-'''
 
 def build_aug_pipeline_for_model(
     model_type: str,
@@ -234,8 +155,7 @@ def build_aug_pipeline_for_model(
 ):
     resize = make_resize(size)
 
-    # only implement what you want; no fallback
-    if not (model_type == "vit" and backbone_type == "timm"):
+    if not (model_type in ("vit", "resnet") and backbone_type == "timm"):
         raise ValueError(
             f"Aug pipeline only for vit+timm. Got model_type={model_type}, backbone_type={backbone_type}"
         )
@@ -344,12 +264,6 @@ def build_transformation_pipeline(size: int, train: bool = True, model_type: str
     mode = "train" if train else "test"
     return build_pipeline_for_model(model_type, size, mode, backbone_type=backbone_type, model_name=model_name)
 
-'''
-def build_aug_transformation_pipeline(size: int, train: bool = True,
-                                      model_type: str = "vit", backbone_type=None, model_name=None):
-    mode = "train" if train else "eval"
-    return build_aug_pipeline_for_model(model_type, size, mode, backbone_type=backbone_type, model_name=model_name)
-'''
 
 def build_aug_transformation_pipeline(
     size: int,
@@ -359,7 +273,7 @@ def build_aug_transformation_pipeline(
     model_name=None,
     aug_id: int = 0,
 ):
-    mode = "train" if train else "test"  # use "test" to match your style
+    mode = "train" if train else "test"  
     return build_aug_pipeline_for_model(
         model_type=model_type,
         size=size,

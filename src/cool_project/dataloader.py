@@ -232,67 +232,7 @@ class DistillDataset(Dataset):
         img, _ = self.base_dataset[idx]   # ignore original label
         teacher_emb = self.teacher_embs[idx]
         return img, teacher_emb
-
-'''
-class DistillDatasetById(Dataset):
-    """
-    Returns:
-      - if aug_transform is None: (x_base, t)
-      - else: (x_base, x_aug, t)
-    """
-
-    def __init__(self, base_dataset, id_to_embedding: dict, base_transform, aug_transform=None):
-        # unwrap if random_split created Subset(GenericCSVDataset)
-        self.base_dataset = base_dataset.dataset if isinstance(base_dataset, Subset) else base_dataset
-
-        self.id_to_embedding = id_to_embedding
-        self.base_transform = base_transform
-        self.aug_transform = aug_transform
-
-        if not hasattr(self.base_dataset, "df") or not hasattr(self.base_dataset, "id_to_path"):
-            raise RuntimeError("Expected base_dataset to have .df and .id_to_path (GenericCSVDataset).")
-
-    def __len__(self):
-        return len(self.base_dataset)
-
-    def __getitem__(self, idx):
-        image_id = str(self.base_dataset.df.iloc[idx]["image"])
-        if image_id not in self.id_to_embedding:
-            raise KeyError(f"No teacher embedding for image_id='{image_id}'")
         
-    
-        t = self.id_to_embedding[image_id]
-        img_path = self.base_dataset.id_to_path[image_id]
-        img = Image.open(img_path).convert("RGB")
-
-        x_base = self.base_transform(img)
-
-        if self.aug_transform is None:
-            return x_base, t
-
-        x_aug = self.aug_transform(img)
-
-        logger.debug(
-            f"[distill-ds] id={image_id} "
-            f"x_base={tuple(x_base.shape)} "
-            f"x_aug={'None' if self.aug_transform is None else tuple(x_aug.shape)} "
-            f"t={tuple(t.shape)}"
-        )
-
-        if not hasattr(self, "_printed_once"):
-            logger.info(
-                f"[distill-ds] sample check:\n"
-                f"  image_id={image_id}\n"
-                f"  base_transform={self.base_transform}\n"
-                f"  aug_transform={'None' if self.aug_transform is None else self.aug_transform}\n"
-                f"  embedding_shape={tuple(t.shape)}"
-            )
-            self._printed_once = True
-
-        return x_base, x_aug, t
-
-'''
-
 
 class DistillDatasetById(Dataset):
     """
@@ -360,7 +300,7 @@ class DistillDatasetById(Dataset):
 
         return x_base, x_augs, t
 
-import torch
+
 
 def distill_k_view_collate(batch):
     """

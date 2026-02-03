@@ -245,7 +245,6 @@ def run_distillation(config_path: str):
     exp_cfg["task"] = "distillation"
     exp_cfg["experiment_name"] = exp_name
     exp_cfg["output_dir"] = str(seed_dir)
-    #exp_cfg["distill_on"] = True  # make it explicit for LightningModel
     exp_cfg["teacher"] = cfg["teacher"]
 
     lit_model = LightningDistillModel(student_model, exp_cfg)
@@ -305,11 +304,7 @@ def run_distillation(config_path: str):
 
 
     logger.info("[distill] Starting distillation training...")
-    #assert X.shape[0] == T.shape[0], "Mismatch: batch images vs teacher embeddings"
-    #assert X.ndim == 4, "Images must be [B,C,H,W]"
-    #assert T.ndim == 2, "Embeddings must be [B,D]"
 
-    #K = 5
     K = int(cfg.get("teacher", {}).get("num_views", 5))
 
     assert X.ndim == 4 and T.ndim == 2
@@ -333,74 +328,3 @@ def run_distillation(config_path: str):
 
     logger.info("[distill] Done.")
 
-
-"""
-    # Wrap datasets with teacher embeddings
-    def wrap_split(split: str, base_loader: Optional[DataLoader], shuffle: bool) -> Optional[DataLoader]:
-        if base_loader is None:
-            return None
-
-        id_to_emb = load_teacher_id_map(embeddings_dir, split)
-
-        model_type = cfg["model"].get("type", "vit").lower()
-        backbone_type = cfg["model"].get("backbone", {}).get("type", None)
-        model_name = cfg["model"].get("backbone", {}).get("model_name", None)
-
-        # Base transform: whatever policy you want for the "clean" view
-        # IMPORTANT: for your code, mode should be "train" or not; you used "test" elsewhere,
-        # but build_pipeline_for_model treats anything != "train" as "else".
-        base_tf = build_pipeline_for_model(
-            model_type=model_type,
-            size=data_cfg["resolution"],
-            mode="train" if split == "train" else "test",
-            backbone_type=backbone_type,
-            model_name=model_name,
-        )
-
-        if split == "train":
-            # Aug transform only for training
-            aug_tf = build_aug_pipeline_for_model(
-                model_type=model_type,
-                size=data_cfg["resolution"],
-                mode="train",
-                backbone_type=backbone_type,
-                model_name=model_name,
-            )
-
-            wrapped_ds = DistillDatasetById(
-                base_dataset=base_loader.dataset,
-                id_to_embedding=id_to_emb,
-                base_transform=base_tf,
-                aug_transform=aug_tf,
-            )
-            collate = distill_two_view_collate
-
-        else:
-            # val/test: single view only (no augmentation)
-            wrapped_ds = DistillDatasetById(
-                base_dataset=base_loader.dataset,
-                id_to_embedding=id_to_emb,
-                base_transform=base_tf,
-                aug_transform=None,
-            )
-            collate = distill_one_view_collate
-        
-        logger.info(
-            f"[distill] split={split}\n"
-            f"  base_tf={base_tf}\n"
-            f"  aug_tf={'None' if split != 'train' else aug_tf}\n"
-            f"  collate={'two_view' if split == 'train' else 'one_view'}"
-        )
-
-
-        return DataLoader(
-            wrapped_ds,
-            batch_size=data_cfg.get("batch_size", 32),
-            num_workers=data_cfg.get("num_workers", 4),
-            shuffle=shuffle,
-            pin_memory=True,
-            drop_last=False,
-            collate_fn=collate,
-        )
-
-"""

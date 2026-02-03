@@ -46,9 +46,9 @@ def build_trainer_from_env(cfg) -> Trainer:
         num_nodes=num_nodes,
         strategy=strategy,
         max_epochs=cfg.get("max_epochs", 10),
-        precision=cfg.get("precision", "16-mixed"),  # example
+        precision=cfg.get("precision", "16-mixed"), 
         log_every_n_steps=cfg.get("log_every_n_steps", 50),
-        # ... add anything else you already pass to Trainer
+        
     )
 
     return trainer

@@ -138,16 +138,16 @@ def build_embedding_experiment(config_path: str):
     logger.info("======================================================")
 
     trainer_kwargs = dict(
-        max_epochs=1,           # we don't train, but Trainer needs some value
+        max_epochs=1,           
         log_every_n_steps=50,
-        logger=False,           # no TB/CSV logs needed here
+        logger=False,           
         enable_checkpointing=False,
     )
 
     if use_gpu:
         trainer_kwargs.update(
             accelerator="gpu",
-            devices=num_visible,   # use all GPUs SLURM gave us
+            devices=num_visible,   
             num_nodes=num_nodes,
             strategy=strategy,
         )
@@ -177,7 +177,7 @@ def build_embedding_experiment(config_path: str):
 
         all_embs, all_labels, all_ids = [], [], []
         for p in preds:
-            all_embs.append(p["embeddings"])     # already on CPU if you used .cpu() in predict_step
+            all_embs.append(p["embeddings"])   
             all_labels.append(p["labels"])
             all_ids.extend(p["image_ids"])
 

@@ -69,7 +69,6 @@ def setup_logging(seed_dir: Path):
     fh.setFormatter(fmt)
     root_logger.addHandler(fh)
 
-    # You can still log via the module logger
     logger.info(f"Logging to {log_file}")
 
 
@@ -236,20 +235,18 @@ def build_training_experiment(config_path: str, run_tag: str | None = None, run_
     num_classes_cfg = cfg_head.get("output_dim")
 
     if is_segmentation:
-        # For segmentation we rely on the config
         if num_classes_cfg is None:
             raise ValueError(
                 "Segmentation task but model.head.output_dim is not set in config. "
                 "Please set it to the number of segmentation classes."
             )
-        # optional: if your SegmentationDataset has num_classes, you can still check consistency
         if num_classes_data is not None and num_classes_data != num_classes_cfg:
             raise ValueError(
                 f"[segmentation] num_classes from data ({num_classes_data}) != "
                 f"model.head.output_dim from config ({num_classes_cfg})."
             )
     else:
-        # Original classification / regression logic
+        
         if num_classes_data is not None and num_classes_cfg is not None:
             if num_classes_data != num_classes_cfg:
                 raise ValueError(
@@ -257,7 +254,6 @@ def build_training_experiment(config_path: str, run_tag: str | None = None, run_
                     f"model.head.output_dim from config ({num_classes_cfg})."
                 )
         elif num_classes_data is not None and num_classes_cfg is None:
-            # auto-fill config
             cfg["model"].setdefault("head", {})
             cfg["model"]["head"]["output_dim"] = num_classes_data
             num_classes_cfg = num_classes_data
@@ -277,7 +273,6 @@ def build_training_experiment(config_path: str, run_tag: str | None = None, run_
         logger.info(f"Label columns: {label_cols}")
         logger.info(f"Class counts (sum over labels): {class_sums}")
 
-        # For single-label (one-hot) this should equal num_samples
         logger.info(
             f"Total label sum across all classes: {sum(class_sums.values())} "
             f"(num_samples = {len(df)})"
@@ -296,12 +291,11 @@ def build_training_experiment(config_path: str, run_tag: str | None = None, run_
     # ----------------------------------------------------
     # Start from train config
     exp_cfg = cfg["train"].copy()
-    #exp_cfg["class_weights"] = cfg.get("class_weights", None)  # optional if you use it
     model.class_weights = cw
     #exp_cfg["class_weights"] = cw  # tensor
 
 
-    #task = exp_cfg.get("task", "single_label_classification").lower()
+    
     exp_cfg["task"] =  train_task
     exp_cfg["loss_type"] = cfg["model"].get("loss_type", "auto")
     exp_cfg["num_classes"] = num_classes_cfg
@@ -560,24 +554,3 @@ def run_trial_by_index(config_path: str, index: int):
     best_val = build_training_experiment(tmp_path, run_tag=run_tag, run_test=False)
     print(f"[trial {index}] {run_tag} best_val={best_val}")
 
-'''
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--sweep", action="store_true")
-    parser.add_argument("--trial-index", type=int, default=None)  # <-- for SLURM arrays
-    args = parser.parse_args()
-
-    cfg = load_config(args.config)
-
-    # If SLURM array passes a trial index, run exactly one combo
-    if args.trial_index is not None:
-        run_trial_by_index(args.config, args.trial_index)
-
-    else:
-        do_sweep = args.sweep or cfg.get("tune", {}).get("enabled", False)
-        if do_sweep:
-            run_hparam_sweep(args.config)
-        else:
-            build_training_experiment(args.config, run_tag=None, run_test=True)
-'''
