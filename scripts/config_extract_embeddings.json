@@ -1,10 +1,10 @@
 {
-  "experiment_name": "isic_vit_distill_256_mean",
-  "output_dir": "extracted_embeddings_256_mean",
+  "experiment_name": "isic_dinov3_128_mean",
+  "output_dir": "extracted_embeddings_128_mean_dinov3",
   "data": {
     "domain": "dermatology",
     "dataset_name": "ISIC2017",
-    "resolution": 256,
+    "resolution": 128,
     "batch_size": 32,
     "num_workers": 4,
     "val_split": 0.1
@@ -13,15 +13,16 @@
   "model": {
     "type": "vit",
     "backbone": {
-      "type": "timm",
-      "model_name": "tiny_vit_21m_224.in1k",
-      "pretrained_ckpt": "/home/users/ksa828/cool_project/runs_distillation/ISIC2017/isic_distillation_vit_256/seed_42/job_13498854/checkpoints/best.ckpt",
+      "type": "hf",
+      "model_name": "facebook/dinov3-vits16-pretrain-lvd1689m",
+      "pretrained_ckpt": null,
       "pooling": "mean",
       "freeze_backbone": true,
-      "img_size": 256
+      "img_size": 128
     }
   },
   "train": {
     "seed": 42
   }
 }
+

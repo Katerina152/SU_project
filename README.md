@@ -27,6 +27,9 @@ with experiments configured via JSON files and executed locally or on **SLURM-ba
 
 
 ### Setup
+
+From the project (rrot) directory install:
+
 ```bash
 pip install -r requirements.txt
 pip install -e .
@@ -35,15 +38,15 @@ pip install -e .
 ---
 ## Distillation
 
+The core functionality of this repository is feature-level knowledge distillation,
+where a student network is trained to match teacher representations extracted at higher
+resolutions or from larger models.
+
 ```bash
 python -m cool_project \
   --function distillation \
   --config scripts/config_distillation.json
 ```
-
-The core functionality of this repository is feature-level knowledge distillation,
-where a student network is trained to match teacher representations extracted at higher
-resolutions or from larger models.
 
 Distillation is fully configured via JSON files
 (see scripts/config_distillation.json).
@@ -58,11 +61,11 @@ projection heads.
 
 The student is then optimized to align with the teacher using the following objective:
 
-\[
+$$
 \mathcal{L}_{\text{distill}} =
 \lambda_{\text{feat}} \lVert h_t - h_s \rVert_2^2 +
 \lambda_{\text{cos}} \left(1 - \cos(h_t, h_s)\right)
-\]
+$$
 
 where \( h_t \) and \( h_s \) denote the projected teacher and student embeddings.
 
@@ -92,16 +95,24 @@ python -m cool_project \
 Extracted embeddings are stored on disk and reused across experiments,
 enabling efficient multi-run and multi-resolution studies.
 
+## Training
+
+Given a frozen encider or a pretrained one via distillation we train a linear probe.
+
+```bash
+
+python -m cool_project \
+  --function training \
+  --config scripts/config_training_non_HP.json
+```
 
 ### Configuration
 
 Experiments are controlled via JSON configuration files in `scripts/`.
 
-### Distillation config (key parameters)
-
 **General**
 - `experiment_name`: experiment identifier used for logging and output naming
-- `output_dir`: root directory where runs are saved (e.g. `runs_new/`)
+- `output_dir`: root directory where runs are saved (e.g. `runs_distillation/`)
 - `task`: experiment type (e.g. `distillation`)
 
 **Teacher embeddings**
@@ -123,7 +134,7 @@ Experiments are controlled via JSON configuration files in `scripts/`.
 - `data.resolution`: input image resolution used for student training
 - `data.batch_size`: batch size
 - `data.num_workers`: dataloader workers
-- `data.val_split`: fraction of training data held out for validation (if applicable)
+- `data.val_split`: fraction of training data held out for validation (if validation dataset is missing)
 - `data.balanced_train`: whether to balance sampling during training
 
 **Student model**
@@ -133,11 +144,12 @@ Experiments are controlled via JSON configuration files in `scripts/`.
 - `model.backbone.freeze_backbone`: freeze or finetune the backbone during training
 
 **Training**
-- `train.lamda_feat`: weight for ℓ2 feature regression loss
+- `train.lamda_feat`: weight for ℓ2 feature loss
 - `train.lamda_cos`: weight for cosine alignment loss
 - `train.lr`, `train.weight_decay`, `train.dropout_rate`
 - `train.max_epochs`, `train.early_stopping_patience`
 - `train.seed`
+- `train.profile.flops`, `train.flops.batch`
 
 Refer to the full JSON files in `scripts/` for additional options.
 
@@ -161,6 +173,13 @@ Example (abbreviated):
     "data.batch_size": [32, 64]
   }
 }
+
+```bash
+
+python -m cool_project \
+  --function training \
+  --config scripts/config_training.json
+```
 
 
 ### Running on SLURM (GPU cluster)
@@ -227,3 +246,28 @@ otherwise defaults to <repo>/data
 On SLURM we typically set:
 
 export DATA_ROOT=/scratch/users/<username>/data
+
+## Dataset and Embedding Layout
+
+All stages of the pipeline (embedding extraction, training, and distillation)
+assume a **consistent dataset split** into training, validation, and test sets.
+
+### Raw image dataset structure
+
+Datasets are expected to be organized as follows:
+
+```text
+<data_root>/<dataset_name>/
+  train/
+    images/
+      *.jpg
+    labels.csv
+  val/
+    images/
+      *.jpg
+    labels.csv
+  test/
+    images/
+      *.jpg
+    labels.csv
+

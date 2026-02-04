@@ -18,10 +18,10 @@
     "type": "vit",
     "backbone": {
       "type": "timm",
-      "model_name": "tiny_vit_21m_224.in1k",
+      "model_name":"tiny_vit_21m_224.in1k",
       "pooling": "cls",
       "num_layers_to_use": null,
-      "pretrained_ckpt":"/home/users/ksa828/cool_project/runs_distillation/ISIC2017/isic_distillation_vit_256/seed_42/job_13339101/checkpoints/best.ckpt",
+      "pretrained_ckpt":"/home/users/ksa828/cool_project/runs_distillation/ISIC2017/isic_distillation_vit_256/seed_42/job_13498854/checkpoints/best.ckpt",
       "freeze_backbone": true,
       "img_size": 256
     },
@@ -37,7 +37,7 @@
   "train": {
     "lr": 1e-3,
     "weight_decay": 0,
-    "max_epochs": 100,
+    "max_epochs": 300,
     "early_stopping_patience": 30,
     "top_k": 1,
     "seed": 42, 
