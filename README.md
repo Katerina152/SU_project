@@ -23,12 +23,13 @@ with experiments configured via JSON files and executed locally or on **SLURM-ba
 
 ### Prerequisites
 - Python **3.10–3.12**
-- SLURM (optional, for cluster execution), CUDA-enabled GPU (recommended)
+- CUDA-enabled GPU (recommended)
+- SLURM (optional, for cluster execution)
 
 
 ### Setup
 
-From the project (rrot) directory install:
+From the project root directory:
 
 ```bash
 pip install -r requirements.txt
@@ -69,16 +70,8 @@ $$
 
 where \( h_t \) and \( h_s \) denote the projected teacher and student embeddings.
 
-The loss consists of:
-- **Feature regression loss** (`lamda_feat`): enforces **magnitude alignment** between
-  teacher and student embeddings via an ℓ2 distance.
-- **Cosine similarity loss** (`lamda_cos`): enforces **directional alignment** in the
-  embedding space, independent of scale.
-
-The combined objective encourages both magnitude and directional consistency, which
-helps stabilize representation-level distillation when teacher and student inputs
-(e.g. resolutions or augmentations) differ substantially.
-
+This encourages both magnitude and directional alignment between teacher and student
+representations.
 
 
 ## Embedding Extraction
@@ -97,7 +90,8 @@ enabling efficient multi-run and multi-resolution studies.
 
 ## Training
 
-Given a frozen encider or a pretrained one via distillation we train a linear probe.
+After distillation (or using a frozen pretrained encoder), a linear probe or lightweight
+head can be trained for downstream tasks.
 
 ```bash
 
@@ -124,7 +118,7 @@ Experiments are controlled via JSON configuration files in `scripts/`.
     test_embeddings/
 
 
-- `teacher.num_views`: number of views/augmentations per sample stored in the teacher embeddings
+- `teacher.num_views`: number of views/augmentations per sample (student model input)
 (typically 1–5). The student is trained to match the corresponding view embeddings.
 - `teacher.embedding_dim`: embedding dimensionality of the teacher (student projections must match this).
 
@@ -137,11 +131,25 @@ Experiments are controlled via JSON configuration files in `scripts/`.
 - `data.val_split`: fraction of training data held out for validation (if validation dataset is missing)
 - `data.balanced_train`: whether to balance sampling during training
 
+Class weights are also computed from the training split and passed to the loss function (e.g. CrossEntropyLoss(weight=...))
+
+These two mechanisms are independent and can be enabled separately
+
 **Student model**
 - `model.type`: model family (e.g. `vit`, `resnet`)
+- `model.backbone.type`: backbone provider (hf for Hugging Face Transformers, timm for timm models)
 - `model.backbone.model_name`: backbone identifier (e.g. timm model string)
 - `model.backbone.pooling`: embedding pooling strategy (e.g. `mean`, `cls`)
 - `model.backbone.freeze_backbone`: freeze or finetune the backbone during training
+
+**Model head**
+- `model.head.type`: head type (e.g. linear, mlp)
+- `model.head.output_dim`: number of output classes (classification) or targets
+- `model.head.output_activation`: optional activation (null for logits)
+- `model.head.dropout`: dropout probability applied in the head
+
+**Loss function**
+- `model.loss_type`: training loss (e.g. ce, bce)
 
 **Training**
 - `train.lamda_feat`: weight for ℓ2 feature loss
@@ -175,12 +183,10 @@ Example (abbreviated):
 }
 
 ```bash
-
 python -m cool_project \
   --function training \
   --config scripts/config_training.json
 ```
-
 
 ### Running on SLURM (GPU cluster)
 
@@ -192,7 +198,7 @@ The repository includes SLURM-compatible scripts for execution on HPC clusters
 2. Configure required environment variables
 3. Submit the SLURM job
 
-For example from the rrot directory:
+For example from the root directory:
 
 ```bash
 sbatch scripts/run_distillation.sh
@@ -200,7 +206,7 @@ sbatch scripts/run_distillation.sh
 
 ## Modules
 
-On our cluster we load:
+Typical modules:
 
 ```bash
 module purge
@@ -208,44 +214,26 @@ module load python/3.12.1
 module load cuda/12.2
 ```
 
-What the SLURM scripts handle
+The SLURM scripts handles:
 
-GPU allocation (--gres=gpu:1)
-
-Hugging Face authentication via HUGGINGFACE_HUB_TOKEN
-(the script fails fast if the token is missing)
-
-Cache setup (HF_HOME, optional TRANSFORMERS_CACHE)
-
-Logging and diagnostics
-
-SLURM stdout/stderr logs
-
-optional GPU utilization logging via nvidia-smi
-
-Execution via a scratch virtual environment, without activating it
-(the script calls <venv>/bin/python directly)
-
-Advanced usage
+- GPU allocation (--gres=gpu:1)
+- Hugging Face authentication via HUGGINGFACE_HUB_TOKEN
+- Cache setup (HF_HOME, optional TRANSFORMERS_CACHE)
+- Logging and diagnostics
+- SLURM stdout/stderr logs
+- Optional GPU utilization logging 
+- Execution via a scratch virtual environment (requirements mentioned above)
 
 Some scripts additionally support:
-
-Multi-seed experiments via SLURM array jobs
-
-Hyperparameter sweeps using SLURM_ARRAY_TASK_ID
+- Multi-seed experiments via SLURM array jobs (Bash file used for multiple seeds: run_training_final_non_HP_seeds.sh)
+- Hyperparameter sweeps using SLURM_ARRAY_TASK_ID
 
 
 ### Data Directory
 
-The dataloader resolves the dataset root as:
+The dataset root is resolved as:
 
-the DATA_ROOT environment variable if set
-
-otherwise defaults to <repo>/data
-
-On SLURM we typically set:
-
-export DATA_ROOT=/scratch/users/<username>/data
+- DATA_ROOT environment variable (if set); if not, defaults to <repo>/data (repo: project root folder)
 
 ## Dataset and Embedding Layout
 
