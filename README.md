@@ -15,25 +15,21 @@ with experiments configured via JSON files and executed locally or on **SLURM-ba
 - Configuration
 - Running on SLURM
 - Data Directory
-- Project Structure
-- Notes & Reproducibility
 
 ---
 
-## 🧰 Installation
+## Installation
 
 ### Prerequisites
 - Python **3.10–3.12**
-- CUDA-enabled GPU (recommended)
-- SLURM (optional, for cluster execution)
+- SLURM (optional, for cluster execution), CUDA-enabled GPU (recommended)
 
-We strongly recommend using a virtual environment.
 
 ### Setup
 ```bash
 pip install -r requirements.txt
 pip install -e .
-
+```
 
 The core functionality of this repository is feature-level knowledge distillation,
 where a student network is trained to match teacher representations extracted at higher
@@ -51,7 +47,7 @@ Distillation is fully configured via JSON files
 python -m cool_project \
   --function distillation \
   --config scripts/config_distillation.json
-
+```
 
 Distillation objective
 
