@@ -39,9 +39,6 @@ Distillation is fully configured via JSON files
 (see scripts/config_distillation.json).
 
 ---
-
-### ✅ Running distillation (copy button will appear)
-```markdown
 ### Running distillation
 ```bash
 python -m cool_project \
