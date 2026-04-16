@@ -1,4 +1,4 @@
-# Cool Project
+# Med-reduce
 ### Feature-Level Knowledge Distillation for Medical Image Models
 
 Cool Project is a research framework for **feature-based knowledge distillation** and
